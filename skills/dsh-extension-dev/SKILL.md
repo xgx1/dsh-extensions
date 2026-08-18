@@ -76,5 +76,9 @@ DSH 是微内核 + Cordis 插件树：一切功能都是挂在文档化扩展点
 - **禁止编辑部署自带的 preset 安装目录**；要改 shipped 预设就复制一份到 `~/.dsh/.agent-presets/` 改副本
 - 插件代码是纯 JS：无 TypeScript/JSX/import；Client 端用 `React.createElement`；先用 `cordis_inspect_*` 查准 API 再写
 - Inspect 查询结果只用于确认能力/签名，不能当业务数据缓存或展示；运行时只调真实 Service
-- **覆盖官方 Web UI 样式**：不能靠 hashed CSS-module 类名（不可预测）。用官方 DOM 的稳定 data 属性做锚（`[data-phase]`、`[data-composer-card]`、`[data-composer-seat]`），规则以扩展自己的 `<html>` data 属性门控（`html[data-x] ...`），关 = 属性移除即还原；覆盖官方 CSS 变量用更高特异性选择器（如 `div[data-phase]` 0,1,1 > `.ConversationRoot_root` 0,1,0）
+- **Host 插件读兄弟服务必须用 `ctx.get(name)`**（全局注册表），禁止未声明属性访问 `ctx.xxx`——属性代理是拓扑敏感的，未 inject 的服务读取会**静默返回 undefined** 导致功能静默失效（dsh-continual-evolve 的 continue 钩子就栽在这：sessionProjections 属性访问 → 无日志无动作）。懒加载模式照抄 `goalServiceOf`（`(ctx as { get(name) }).get(name)`）
+- **监听 agent 事件（agent/status、turn-stopping）在插件 ctx 上可行**：cordis 事件表全局共享 + scope filter 放行无标签 ctx（动态插件实测验证）
+- **覆盖官方 Web UI 样式**：不能靠 hashed CSS-module 类名（不可预测）。用官方 DOM 的稳定 data 属性做锚（`[data-phase]`、`[data-composer-card]`、`[data-composer-seat]`、slot 渲染的 `[data-slot='...']`），规则以扩展自己的 `<html>` data 属性门控（`html[data-x] ...`），关 = 属性移除即还原；覆盖官方 CSS 变量用更高特异性选择器（如 `div[data-phase]` 0,1,1 > `.ConversationRoot_root` 0,1,0）
+- **侧边栏等无 seat 区域的 UI 挂载**：`waitForElement('[data-slot="sidebar.workspaces"]')`（MutationObserver）+ 目标前 `insertBefore` 锚点 + `createRoot` 挂 React（aionui-panel 先例；dsh-sidebar-taskbar 用之插入任务栏）；折叠检测用 ResizeObserver 看父列宽
 - **独立 client bundle 构建**：官方 `clientBundle` 预设只在官方仓库内可用；独立包复制其要点即可——`window.__ModuleLoader__.load({id, factory: require => ...})` banner/footer + platform 模块 external（react、ui-primitives、runtime/client 等）+ `define` 替换 process.env；CSS Modules 可用 lightningcss 插件或直接内联 style/常量
+- **pnpm 在本机 profiles/web 装 link 包时网络失败**：设 `$env:HTTPS_PROXY/HTTP_PROXY=http://127.0.0.1:7897` 重试（`dsh plugin add` 超时/`fetch failed` 均此处理）；`--no-frozen-lockfile` 应对 lockfile 漂移
