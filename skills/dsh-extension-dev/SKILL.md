@@ -1,6 +1,6 @@
 ---
 name: dsh-extension-dev
-description: DSH 功能扩展开发元技能（先搜索复用、无现成才自己写、写完传 GitHub）。触发词：扩展 DSH、DSH 插件、给 DSH 加功能、开发 DSH 扩展、DSH 扩展开发、DSH 功能扩展。四条规矩：①动手前先搜本地/网上现成扩展，大致符合就在其基础上改，禁止从零重写；②自己写必须先加载 cordis-plugin-development 技能（即本机「add feature」类技能）再描述功能并实现；③一个功能只做一个插件，严禁多功能糅合；④完成后直接上传 GitHub（账号 xgx1，仓库 dsh-extensions）。
+description: DSH 功能扩展开发元技能（先搜索复用、无现成才自己写、写完传 GitHub）。触发词：扩展 DSH、DSH 插件、给 DSH 加功能、开发 DSH 扩展、DSH 扩展开发、DSH 功能扩展。四条规矩：①动手前先搜本地/网上现成扩展，大致符合就在其基础上改，禁止从零重写；②逐步实现——已有相关功能时先加载 add-software-feature 技能扩展它，没有现成才加载 cordis-plugin-development 新建，且写前先描述功能；③一个功能只做一个插件，严禁多功能糅合；④完成后直接上传 GitHub（账号 xgx1，仓库 dsh-extensions）。
 ---
 
 # DSH 扩展开发（基本原理 + 四条规矩）
@@ -16,7 +16,7 @@ DSH 是微内核 + Cordis 插件树：一切功能都是挂在文档化扩展点
 | 动态 Cordis 插件 | `cordis_define`/`cordis_run`，会话内 | 当前进程，重启即失 | 临时功能、原型试水、一次性界面 |
 | Agent 预设 / 宿主组合 | `~/.dsh/.agent-presets/<id>/cordis.yml` | 持久 | 改会话工具集/人设/模型路由 |
 | 技能 | `~/.dsh/skills/<名字>/SKILL.md` | 持久 | 教 agent「怎么做」（本技能即此形态） |
-| 持久安装插件 | dsh-web-ui 全家桶 `packages/`（dsh-ssh、dsh-task-board、dsh-aionui-panel） | 持久跨会话 | 正式功能 |
+| 持久安装插件（独立 npm 包） | 独立包：`exports ./client` + `dsh.client` manifest + `dsh.bundle.patch`（cordis.patch.yml insert 行）；`dsh plugin --profile web add link:<目录>` 本地安装（aionui-panel、web-dsh-web-extension 先例） | 持久跨会话 | 正式功能、Web GUI 扩展 |
 | MCP 工具 | 组合里挂 mcp 行 | 持久 | 接入外部工具生态 |
 
 权威资料（以当前仓库证据为准，不靠记忆）：
@@ -39,9 +39,15 @@ DSH 是微内核 + Cordis 插件树：一切功能都是挂在文档化扩展点
 
 禁止假装搜过：报告必须写「搜了什么、找到了什么、为什么用/不用」。
 
-## 2. 规矩二：自己写之前先调已有技能
+## 2. 规矩二：逐步实现，先调已有技能
 
-- 第一步用 skill 工具加载 **`cordis-plugin-development`**（即本机「add feature」类技能的实际名称；它涵盖 Inspect 查询、Host/Client 分工、Slot/主题/Tool 注册协议、版本升级、审批失败处理、故障修复全套流程，按其执行）
+判定完规矩一后分两支：
+
+- **(a) 已有相关功能（要扩展/改写现成插件）** → 第一步用 skill 工具加载 **`add-software-feature`**（用户侧「添加功能」技能），按其流程逐步把这个功能加到现成插件上，禁止推倒重写
+- **(b) 没有现成功能（要新建插件）** → 第一步用 skill 工具加载 **`cordis-plugin-development`**（本机插件开发流程技能；涵盖 Inspect 查询、Host/Client 分工、Slot/主题/Tool 注册协议、版本升级、审批失败处理、故障修复全套流程，按其执行）
+
+两条分支共用：
+
 - 改的是预设/宿主组合 → 加载 `editing-cordis-compositions`
 - 在 dsh-web-ui 全家桶里加包 → 照该仓库 `packages/` 现有包的结构做
 - 写代码前先**描述功能**：一句话目标 + 目标形态（上表五选一）+ 验收标准，再实现
@@ -66,6 +72,9 @@ DSH 是微内核 + Cordis 插件树：一切功能都是挂在文档化扩展点
 ## 常见坑
 
 - 动态插件是进程内扩展：重启即失；要持久必须落到预设/安装插件形态
+- **扩展现成功能 ≠ 改官方源码**：优先独立包/补丁形式覆盖，官方源码改动目标为 0（web-dsh-web-extension 即纯 profile-bundle 覆盖层）
 - **禁止编辑部署自带的 preset 安装目录**；要改 shipped 预设就复制一份到 `~/.dsh/.agent-presets/` 改副本
 - 插件代码是纯 JS：无 TypeScript/JSX/import；Client 端用 `React.createElement`；先用 `cordis_inspect_*` 查准 API 再写
 - Inspect 查询结果只用于确认能力/签名，不能当业务数据缓存或展示；运行时只调真实 Service
+- **覆盖官方 Web UI 样式**：不能靠 hashed CSS-module 类名（不可预测）。用官方 DOM 的稳定 data 属性做锚（`[data-phase]`、`[data-composer-card]`、`[data-composer-seat]`），规则以扩展自己的 `<html>` data 属性门控（`html[data-x] ...`），关 = 属性移除即还原；覆盖官方 CSS 变量用更高特异性选择器（如 `div[data-phase]` 0,1,1 > `.ConversationRoot_root` 0,1,0）
+- **独立 client bundle 构建**：官方 `clientBundle` 预设只在官方仓库内可用；独立包复制其要点即可——`window.__ModuleLoader__.load({id, factory: require => ...})` banner/footer + platform 模块 external（react、ui-primitives、runtime/client 等）+ `define` 替换 process.env；CSS Modules 可用 lightningcss 插件或直接内联 style/常量
