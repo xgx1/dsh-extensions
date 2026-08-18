@@ -1,0 +1,16 @@
+# dsh-continual-evolve bundle layer (fork: turn-end hook).
+#
+# Installed via `dsh plugin --profile <name> add dsh-continual-evolve`, this
+# patch inserts the plugin row so it activates without manual profile editing.
+# Fork defaults: the auto-review gate is ON (every reviewIntervalTurns turns),
+# unfinished work is continued after idle turns (bounded by continueMaxRounds),
+# and project-scoped entries live under <projectRoot>/.dsh/evolve with skills
+# under <projectRoot>/.dsh/skills.
+- insert:
+    - id: continual-evolve
+      name: 'dsh-continual-evolve'
+      config:
+        autoReview: true
+        continueOnUnfinished: true
+        continueMaxRounds: 3
+        projectScope: true
