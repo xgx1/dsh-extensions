@@ -98,7 +98,7 @@ $exe = (Get-Content 'C:\Users\Admin\Project\Other\update-app\bin\current.json' -
 | `Could not resolve host` / `Failed to connect` / `unable to access` | 网络问题，规则已跳过；可设代理 `http://127.0.0.1:7897` 后重试 |
 | `fatal: not a git repository` | 路径不是 git 仓库：确认路径 / `git init`，规则已 ask_user |
 | `CONFLICT` / `Automatic merge failed` | 上游冲突：人工解决（保留双方改动），规则已 ask_user |
-| `cannot pull with rebase: You have unstaged changes` | 仓库有 WIP（如 Qwen-MM-Plugins、dsh-continual-evolve 常态）：
+| `cannot pull with rebase: You have unstaged changes` | 仓库有 WIP（如 dsh-continual-evolve 常态）：
   先 `git -C <path> status` 看改动，向用户确认 stash/commit/跳过，规则已 ask_user |
 | `scoop` 相关失败 | `scoop update <app>` 失败常见解法：`scoop reset <app>` 或重装；scoop 不在 PATH 先确认安装 |
 | 构建报 net10 不支持 | 用了 9 的 SDK：改用 `C:\Users\Admin\scoop\apps\dotnet-sdk\current\dotnet.exe` |
