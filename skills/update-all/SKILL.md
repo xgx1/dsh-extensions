@@ -91,11 +91,23 @@ $exe = (Get-Content 'C:\Users\Admin\Project\Other\update-app\bin\current.json' -
 
 按类别给出：成功/自动修复/skipped/待确认/失败 清单 + 下一步动作（哪些等用户回复、哪些建议调整配置）。
 
+### 7. DSH 相关更新后的收尾：最后重启 PM2
+
+本机 DSH（dsh-web / dsh-proxy / headroom 代理 / ollama 等）由 PM2 托管。凡是改了 DSH 插件、MCP 注册
+（`~/.dsh/profiles/web/cordis.patch.yml`、mcp.json 等）、web profile 配置，**必须重启才生效**，
+且只放在**所有更新确认 OK 之后**做：
+
+- 执行 `pm2 restart all`（用户确认：直接全量重启，含 DSH 自身）。
+- **绝不能提前重启**：dsh-web 就是 DeepSeek harness 本体，中途重启会把当前对话与剩余工作全部打断。
+- 重启瞬间本对话会断线，页面随后自动恢复——此时新配置（如卸载的 MCP）才真正生效。
+- 注意 `pm2 restart all` 不会拉起当前 stopped 的应用（如 headroom-kimi），需要时单独 `pm2 start <name>`。
+
 ## 本机已知问题速查
 
 | 日志特征（match） | 处理 |
 |---|---|
 | `Could not resolve host` / `Failed to connect` / `unable to access` | 网络问题，规则已跳过；可设代理 `http://127.0.0.1:7897` 后重试 |
+| `git push` 报 `Failed to connect to github.com:443` / `Connection was reset` | 先查代理：`Test-NetConnection 127.0.0.1 -Port 7897`；端口在听仍失败 = 代理上游问题，本地 commit 不受影响，等网络恢复后重试 push 即可 |
 | `fatal: not a git repository` | 路径不是 git 仓库：确认路径 / `git init`，规则已 ask_user |
 | `CONFLICT` / `Automatic merge failed` | 上游冲突：人工解决（保留双方改动），规则已 ask_user |
 | `cannot pull with rebase: You have unstaged changes` | 仓库有 WIP（如 dsh-continual-evolve 常态）：
