@@ -19,3 +19,4 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 - [`plugins/web-dsh-web-extension`](plugins/web-dsh-web-extension/README.md) —— DSH Web GUI 布局扩展：对话内容铺满、输入框左对齐、设置面板「对话布局」行。纯 profile-bundle 覆盖层（官方 `webServer.tapIndex` seam + `settings.general.item` 设置行），零官方源码修改。
 - [`plugins/dsh-continual-evolve`](plugins/dsh-continual-evolve/README.md) —— 轮次结束钩子（fork [ZK-Andy/dsh-continual-evolve](https://github.com/ZK-Andy/dsh-continual-evolve)，MIT）：每 N 轮自动提炼记忆/技能，未完成任务限量自动继续；新增**项目级存储**（`<项目根>/.dsh/evolve` + 项目技能 `<项目根>/.dsh/skills`，git 根优先/无 git 用 cwd）。
 - [`plugins/dsh-sidebar-taskbar`](plugins/dsh-sidebar-taskbar/README.md) —— 侧边栏会话任务栏：工作区上方显示运行结束（绿）/运行中（红）/等待回复（琥珀）会话，点击跳转；折叠自动隐藏。数据复用官方 sessions 快照，零官方源码修改。
+- [`skills/update-all`](skills/update-all/SKILL.md) —— 更新所有软件：调 update-app CLI（读取 `applist.toml`，更新源码项目 / Scoop 应用 / 特殊配置与 DSH 插件源码），读报错日志自动处理已知问题，需要用户拍板时停下询问并继续处理其他项，把新问题解法固化成 `[fixes.rules]`（下次 CLI 自愈，无需 AI）。
