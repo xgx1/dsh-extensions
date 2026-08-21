@@ -1,5 +1,5 @@
 # DeepSeek Vision 配置示例 — 复制到 ~/.dsh/settings.yaml 对应小节
-# 完整说明见同目录 README.md
+# 完整说明见同目录 README.md（含 dsh-llm-pi-ai compat 源码改动说明）
 
 llm-pi-ai:
   providers:
@@ -8,13 +8,21 @@ llm-pi-ai:
       # 本机示例走 headroom 缓存代理；直连官方端点请改 https://api.deepseek.com
       baseURL: http://127.0.0.1:8787/v1
       apiKeyEnv: DEEPSEEK_API_KEY
+      compat:
+        thinkingFormat: deepseek
+        supportsReasoningEffort: true
+        supportsDeveloperRole: false
+        requiresReasoningContentOnAssistantMessages: true
       models:
         - id: deepseek-v4-flash-vision-exp
           name: DeepSeek V4 Flash Vision
           input: [ text, image ]
-          reasoningEfforts: false
+          reasoningEfforts:
+            off: null
+            max: max
 
-# 可选：让新会话默认使用视觉模型（不要写 reasoningEffort，见 README 已知限制）
+# 可选：让新会话默认使用视觉模型（思考档位已开启，可带 reasoningEffort）
 # agent-default-model:
 #   provider: deepseek
 #   model: deepseek-v4-flash-vision-exp
+#   reasoningEffort: max

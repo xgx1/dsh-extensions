@@ -5,8 +5,10 @@
 
 ## 形态
 
-**纯 `settings.yaml` 配置扩展，零代码、无需重启**。DSH 的 settings 文件由 chokidar 监听，
-`llm-pi-ai` 插件在配置变化后按请求热重解析并就地重注册路由。
+**settings.yaml 配置 + dsh-llm-pi-ai compat 配置面小扩展**（两个新字段：
+`supportsDeveloperRole` / `requiresReasoningContentOnAssistantMessages`，见「配套源码改动」）。
+settings 文件由 chokidar 监听、配置热生效；compat 字段改动属于官方包源码，需重建 lib 并
+重启 dsh web 进程（PM2：`pm2 restart dsh-web`）。
 
 ## 配置
 
@@ -19,11 +21,18 @@ llm-pi-ai:
       displayName: DeepSeek Vision
       baseURL: http://127.0.0.1:8787/v1   # 可换成 https://api.deepseek.com 直连
       apiKeyEnv: DEEPSEEK_API_KEY
+      compat:
+        thinkingFormat: deepseek
+        supportsReasoningEffort: true
+        supportsDeveloperRole: false      # DeepSeek 端点不认 developer role，必须关
+        requiresReasoningContentOnAssistantMessages: true   # 思考模式多轮回传 reasoning_content
       models:
         - id: deepseek-v4-flash-vision-exp
           name: DeepSeek V4 Flash Vision
           input: [ text, image ]          # 声明多模态：read_image/贴图才会放行
-          reasoningEfforts: false          # 见「已知限制」
+          reasoningEfforts:
+            off: null
+            max: max                      # 思考档位已开启（实测 thinking + reasoning_effort max 可用）
 ```
 
 若希望新会话默认使用视觉模型：
@@ -34,8 +43,9 @@ agent-default-model:
   model: deepseek-v4-flash-vision-exp
 ```
 
-> 注意：`reasoningEfforts: false` 的模型不提供任何思考档位，默认模型条目**不要携带
-> `reasoningEffort`**，否则新建会话会报 `UNSUPPORTED_REASONING_EFFORT`。
+> 注意：开启思考档位后，默认模型条目可以携带 `reasoningEffort: max`；
+> 若改用 `reasoningEfforts: false`（无档位）则默认条目**不要带** `reasoningEffort`，
+> 否则新建会话报 `UNSUPPORTED_REASONING_EFFORT`。
 
 ## 工作原理
 
@@ -45,6 +55,25 @@ agent-default-model:
   base64 → OpenAI 兼容 `image_url` data URL，发往端点。
 - 本机示例走 headroom 缓存代理（`http://127.0.0.1:8787/v1` → `api.deepseek.com`），
   直连官方端点同样可用（图片限 48 MiB base64 / 外部 URL 8192 字符 / 仅 user 消息可带图）。
+- 思考模式：`compat.thinkingFormat: deepseek` + `reasoningEfforts` 档位 →
+  请求携带 `thinking: {type: enabled}` 与 `reasoning_effort`。
+
+## 配套源码改动（dsh-llm-pi-ai compat 配置面）
+
+pi-ai 对思考型模型默认把系统提示写成 `developer` role，DeepSeek 端点只接受
+`system/user/assistant/tool`（否则 400 `unknown variant developer`）。pi-ai 内置 deepseek
+目录的模型靠 `compat.supportsDeveloperRole: false` 规避，但 DSH 的 `llm-pi-ai` 配置面原先只
+暴露 `thinkingFormat` / `supportsReasoningEffort`，无法对手声明模型注入该标志。
+
+改动（`packages/llm/llm-pi-ai`）：
+- `src/catalog.ts`：`PiAiCompatProfile` 增加 `supportsDeveloperRole?` 与
+  `requiresReasoningContentOnAssistantMessages?`；`resolveModelCompat` 转发两字段；
+  route 级开关校验同步覆盖。
+- `src/config.ts`：`compatProfile` schema 增加两字段。
+- `tests/catalog.spec.ts`：覆盖新字段的 route/entry 合并、协议拒绝路径。
+
+改后需重建：`pnpm exec tsc -b tsconfig.host.json && pnpm exec tsdown --env.DSH_BUILD_FACE host`，
+再 `pm2 restart dsh-web`。
 
 ## 验证
 
@@ -53,24 +82,20 @@ agent-default-model:
 $body = @{ type='client-request'; rpcId=[guid]::NewGuid().ToString(); method='llm.providers'; payload=@{} } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://127.0.0.1:3080/api/llm.providers" -Method Post -ContentType 'application/json' -Body $body
 
-# 2. 会话模型目录含 vision 模型（groups[].id == 'deepseek'）
+# 2. 会话模型目录含 vision 模型（groups[].id == 'deepseek'），reasoning 档位 Off/Max
 # 3. 直接贴图提问即可；也可在 GUI 模型选择器切到「DeepSeek V4 Flash Vision」
 ```
 
-实测：向视觉模型发送带「VISION 42」文字的测试图，回答准确读出 `VISION 42`。
+实测（wire 捕获）：`messages[0].role: system`（非 developer）、`thinking: {type: enabled}`、
+`reasoning_effort: max`、`user` 消息含 `text,image_url` 块；带「VISION 42」文字的测试图回答
+准确读出 `VISION 42`。
 
 ## 已知限制
 
-- **`reasoningEfforts: false`（关闭显式思考档位）**：pi-ai 内置 deepseek 目录的模型都携带
-  `compat: { supportsDeveloperRole: false, ... }`，但 DSH 的 `llm-pi-ai` compat 配置面
-  （`PiAiCompatProfile`）只暴露 `thinkingFormat` / `supportsReasoningEffort`，无法对手声明模型
-  注入 `supportsDeveloperRole`。开启思考时 pi-ai 会把系统提示写成 `developer` role，
-  DeepSeek 端点返回 400（`unknown variant developer`）。关闭思考后走 `system` role 正常。
-  模型本身仍会做内部推理（usage 含 reasoning_tokens）。
-- 后续若 pi-ai 目录收录 `deepseek-v4-flash-vision-exp`（自带 compat），或
-  `dsh-llm-pi-ai` 扩展 compat 面，可改回 `reasoningEfforts: { off: null, max: max }` 启用思考档位。
 - 视觉模型不在 DSH 的 `llm-deepseek`（deepseek-official）适配器目录中；该适配器把所有模型
   硬编码为 `inputModalities: ['text']` 且序列化器拒绝图片块，故视觉模型挂在 pi-ai 路由下。
+- 若 pi-ai 目录日后收录 `deepseek-v4-flash-vision-exp`（自带 compat），可改用 catalog 路由
+  或直接删掉本配置的 compat 块（继承目录值）。
 
 ## 出处
 
