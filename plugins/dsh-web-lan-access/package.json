@@ -1,0 +1,16 @@
+{
+  "name": "dsh-web-lan-access",
+  "version": "0.1.0",
+  "description": "DSH Web GUI LAN access: makes the web server bind 0.0.0.0 so phones and other LAN devices can open the UI — a pure profile-bundle overlay (webserver host default), zero official dsh source changes",
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0"
+}
