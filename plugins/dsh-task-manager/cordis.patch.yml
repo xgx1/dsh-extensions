@@ -1,0 +1,7 @@
+# dsh-task-manager bundle patch: inserts the plugin row into the web
+# profile roster. The node half (exports ".") is an empty loader entry; the
+# `dsh.client` declaration in package.json makes the browser half (exports
+# "./client") load in the web GUI.
+- insert:
+    - id: dsh-task-manager
+      name: 'dsh-task-manager'
