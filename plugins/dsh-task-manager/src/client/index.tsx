@@ -303,7 +303,7 @@ const CSS = `
 .dsh-taskm-textarea:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
 .dsh-taskm-title-row{display:flex;gap:8px;align-items:center}
 .dsh-taskm-title-row .dsh-taskm-input{flex:1}
-.dsh-taskm-ghost{display:inline-flex;align-items:center;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;color:var(--dsw-alias-brand-primary);cursor:pointer;font:inherit;font-size:12px;white-space:nowrap}
+.dsh-taskm-ghost{display:inline-flex;align-items:center;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent);color:var(--dsw-alias-brand-primary);cursor:pointer;font:inherit;font-size:12px;white-space:nowrap}
 .dsh-taskm-ghost:hover{background:var(--dsw-alias-button-ghost-active-fill)}
 .dsh-taskm-radio{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;cursor:pointer}
 .dsh-taskm-radio:hover{border-color:var(--dsw-alias-brand-primary)}
@@ -360,6 +360,7 @@ function NewTaskDialog(props: {
   onCreated: (task: Task) => void
 }): ReactElement {
   const [title, setTitle] = useState('')
+  const [titleEdited, setTitleEdited] = useState(false)
   const [content, setContent] = useState('')
   const [runMode, setRunMode] = useState<RunMode>('cwd')
   const [branch, setBranch] = useState('')
@@ -370,7 +371,19 @@ function NewTaskDialog(props: {
 
   const handleContent = (value: string): void => {
     setContent(value)
-    setTitle((previous) => (previous.trim() === '' ? autoTitle(value) : previous))
+    // Auto-generate the title from the content and keep it in sync while the
+    // user has not hand-edited it (or has cleared it back to empty).
+    if (!titleEdited) setTitle(autoTitle(value))
+  }
+
+  const handleTitle = (value: string): void => {
+    setTitleEdited(value.trim() !== '')
+    setTitle(value)
+  }
+
+  const handleAutoTitle = (): void => {
+    setTitle(autoTitle(content))
+    setTitleEdited(false)
   }
 
   const submit = async (): Promise<void> => {
@@ -411,9 +424,9 @@ function NewTaskDialog(props: {
               className="dsh-taskm-input"
               value={title}
               placeholder={translate('title')}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => handleTitle(event.target.value)}
             />
-            <button type="button" className="dsh-taskm-ghost" onClick={() => setTitle(autoTitle(content))}>
+            <button type="button" className="dsh-taskm-ghost" onClick={handleAutoTitle}>
               {translate('autoTitle')}
             </button>
           </div>
