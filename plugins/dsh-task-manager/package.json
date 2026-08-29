@@ -1,7 +1,7 @@
 {
   "name": "dsh-task-manager",
-  "version": "0.1.0",
-  "description": "DSH web GUI task manager: a Task Commander entry in the sidebar top area that switches the center conversation area to a task panel with a Create New Task button — a pure profile-bundle overlay, zero dsh source changes",
+  "version": "0.2.0",
+  "description": "DSH web GUI task manager: a Task Commander view with a new-task dialog (auto title, run in cwd / new worktree / existing worktree), a status-tracked task list, and a detail view with worktree and takeover-conversation info — pure profile-bundle overlay, zero dsh source changes",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
