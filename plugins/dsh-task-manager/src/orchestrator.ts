@@ -23,6 +23,7 @@
  * owns the list) via applyReportHuman().
  */
 import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
 import {
   STATUSES,
   type CaptainRecord,
@@ -152,6 +153,12 @@ export interface TaskManagerService {
   listMine(sessionId: string): Promise<TaskRecord[]>
   /** 催办：向队长会话投递催办文本并打 lastNudgeAt。 */
   nudge(taskId: string, options?: { managerSessionId?: string }): Promise<{ taskId: string; lastNudgeAt: number }>
+  /** Manager 建单（cwd 模式；worktree 流程走 HTTP /create 路由）。 */
+  create(input: { title?: string; content: string; directory?: string; needsFinalReview?: boolean }): Promise<TaskRecord>
+  /** Manager 显式改状态（形式核验关单/打回通道；不做终审钳制——set-status 是用户的终审关单通道）。 */
+  setStatus(taskId: string, status: Status): Promise<TaskRecord>
+  /** 任务列表（可按类别/状态过滤，updatedAt 降序）。 */
+  list(filter?: { category?: string; status?: Status }): Promise<TaskRecord[]>
   /** 注册表快照（含类别任务计数）。 */
   captains(): Promise<Array<CaptainRecord & { category: string; taskCount: number }>>
   /** 章程编辑（upsert：可先于首次派发预写章程）。 */
@@ -293,6 +300,56 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         }
       })
       return { taskId, lastNudgeAt }
+    },
+
+    async create(input) {
+      if (typeof input.content !== 'string' || input.content.trim() === '') {
+        throw new OrchestratorError('INVALID_INPUT', 'task content is required')
+      }
+      if (input.needsFinalReview !== undefined && typeof input.needsFinalReview !== 'boolean') {
+        throw new OrchestratorError('INVALID_INPUT', 'needsFinalReview must be a boolean')
+      }
+      const stamp = now()
+      const directory = input.directory !== undefined && input.directory.trim() !== ''
+        ? resolve(input.directory)
+        : process.cwd()
+      return deps.store.mutate((tasks) => {
+        const task: TaskRecord = {
+          id: randomUUID(),
+          title: input.title !== undefined && input.title.trim() !== ''
+            ? input.title.trim()
+            : input.content.split('\n')[0]?.slice(0, 60) ?? 'Untitled',
+          content: input.content,
+          status: 'not-started',
+          runMode: 'cwd',
+          directory,
+          dispatchRound: 0,
+          needsFinalReview: input.needsFinalReview === true,
+          createdAt: stamp,
+          updatedAt: stamp,
+        }
+        tasks.push(task)
+        return task
+      })
+    },
+
+    async setStatus(taskId, status) {
+      const validStatus = assertStatus(status)
+      return deps.store.mutate((tasks) => {
+        const task = tasks.find((item) => item.id === taskId)
+        if (task === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+        task.status = validStatus
+        task.updatedAt = now()
+        return task
+      })
+    },
+
+    async list(filter) {
+      const tasks = await deps.store.load()
+      const filtered = tasks
+        .filter((task) => (filter?.category === undefined || task.category === filter.category)
+          && (filter?.status === undefined || task.status === filter.status))
+      return filtered.sort((a, b) => b.updatedAt - a.updatedAt)
     },
 
     async captains() {

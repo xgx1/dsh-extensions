@@ -74,7 +74,24 @@ listMine(sessionId): Promise<TaskRecord[]>
 nudge(taskId, options?: { managerSessionId? }): Promise<{ taskId, lastNudgeAt }>
 captains(): Promise<Array<CaptainRecord & { category, taskCount }>>
 setCharter(category, charter): Promise<CaptainRecord & { category }>
+create(input: { title?, content, directory?, needsFinalReview? }): Promise<TaskRecord>  // cwd 模式建单（M2）
+setStatus(taskId, status): Promise<TaskRecord>   // 显式改状态，不受终审钳制（M2）
+list(filter?: { category?, status? }): Promise<TaskRecord[]>  // updatedAt 降序（M2）
 ```
+
+### 模型工具（M2，7 个，名字与 CAPTAIN_TOOL_FILTER 逐字绑定）
+
+| 工具 | 面 | 语义 |
+|---|---|---|
+| `task_assign` | 管理 | 派发：新类别自动建队长（章程+简报走 persona），已有类别复用（轮次+1）；`exec.agent.id` 为派发父会话 |
+| `task_create` | 管理 | 建单（cwd 模式；worktree 流程走 GUI /create） |
+| `task_set_status` | 管理 | 显式改状态：形式核验关单（done）/打回（problem）通道，**不受终审钳制** |
+| `task_list` | 管理 | 清单（category/status 过滤，最近更新在前，最多 50 条） |
+| `task_nudge` | 管理 | 催办：向队长会话投递催办文本并记 lastNudgeAt |
+| `task_claim` | 队长 | 领派发：列出 captainSessionId==本会话 的任务（工作队列） |
+| `task_report` | 队长 | 回报：状态+正文+证据路径；身份线 `exec.agent.id == captainSessionId`（服务层强制） |
+
+前 5 个名字即 `MANAGEMENT_TOOL_NAMES`（orchestrator.ts 导出），队长子会话的 per-child `toolFilter` 按名 deny；改名必须两处同步，否则 `tools.restrict()` 报 unknown name。工具定义经真实 `defineTool`（`@deepseek-ai/dsh-tools` devDependency）注册，参数校验由注册表强制。
 
 派发语义：`assign` 新类别/无会话 → `startContinuable({provider:'spawn', label:'队长·<类别>', childId, request:{prompt, parent: managerAgent, persona: 章程+简报, toolFilter: {deny: [管理工具×5]}}, signal})`（managerSessionId 必填）；已有会话 → live 走 `Agent.followup`（唤醒）、不 live 走 `subagents.followup(managerAgent, …)` 冷恢复。`charter` 仅创建分支生效（persona 建会话时定型）。
 
