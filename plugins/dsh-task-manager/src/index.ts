@@ -7,7 +7,12 @@
  * `dsh-agent-teams` bundle uses for its web surface.
  *
  * - Tasks persist to a single JSON file under `~/.dsh/task-manager/tasks.json`
- *   (overridable via `config.stateDir`).
+ *   (overridable via `config.stateDir`); the captain registry lives next to it
+ *   in `captains.json`. Both stores serialize mutations and write atomically.
+ * - Orchestration (M1): the `taskManager` host service assigns tasks to
+ *   category captains (continuable child sessions per ADR-0003), receives the
+ *   restricted captain reports (identity-checked), and manages the registry.
+ *   The model tools (M2) consume it via `ctx.get('taskManager')`.
  * - Worktrees are read/created through the `git` CLI (`worktree list` /
  *   `worktree add`), resolved against the active session's working directory,
  *   then the first workspace, then the host process cwd.
@@ -16,44 +21,18 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import { STATUSES, type ConversationSummary, type RunMode, type Status, type TaskRecord } from './records.ts'
+import { CaptainStore, TaskStore } from './stores.ts'
+import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
+import { registerOrchestrationRoutes, type RouteRegistrar } from './orchestration-routes.ts'
+import { json, readJsonBody } from './http.ts'
 
 const execFileAsync = promisify(execFile)
-
-/** Task status vocabulary (stable keys; labels live in the client dictionaries). */
-const STATUSES = ['not-started', 'in-progress', 'waiting-reply', 'problem', 'waiting-check', 'done'] as const
-type Status = (typeof STATUSES)[number]
-
-/** Run-location modes the create dialog offers. */
-type RunMode = 'cwd' | 'new-worktree' | 'existing-worktree'
-
-/** One persisted task record. */
-interface TaskRecord {
-  id: string
-  title: string
-  content: string
-  status: Status
-  runMode: RunMode
-  directory: string
-  worktreeBranch?: string
-  conversations?: ConversationSummary[]
-  createdAt: number
-  updatedAt: number
-}
-
-/** Compact, owned summary of one durable session that took over a task. */
-interface ConversationSummary {
-  id: string
-  shortId: string
-  cwd?: string
-  createdAt?: number
-  origin?: string
-}
 
 /** Worktree row returned by `git worktree list --porcelain`. */
 interface WorktreeRow {
@@ -70,13 +49,7 @@ interface Config {
 }
 
 /** Structural slice of the host web server service. */
-interface WebServer {
-  register(route: {
-    kind: 'exact' | 'prefix'
-    path: string
-    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
-  }): () => void
-}
+interface WebServer extends RouteRegistrar {}
 
 /** Structural slice of the durable session store. */
 interface SessionLike {
@@ -101,6 +74,10 @@ interface WorkspaceLike {
   path?: unknown
   title?: unknown
 }
+
+export { TASK_MANAGER_SERVICE } from './orchestrator.ts'
+export type { TaskManagerService } from './orchestrator.ts'
+export type { TaskRecord, CaptainRecord } from './records.ts'
 
 export const name = 'dsh-task-manager'
 
@@ -167,48 +144,6 @@ function branchDirName(branch: string): string {
   return cleaned === '' ? 'worktree' : cleaned
 }
 
-/** Serialize a single JSON value write path between concurrent requests. */
-class TaskStore {
-  private readonly file: string
-  private readonly dir: string
-  private writeQueue: Promise<unknown> = Promise.resolve()
-
-  constructor(dir: string) {
-    this.dir = dir
-    this.file = join(dir, 'tasks.json')
-  }
-
-  async load(): Promise<TaskRecord[]> {
-    try {
-      const raw = await readFile(this.file, 'utf8')
-      const parsed: unknown = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return []
-      return parsed.filter((item): item is TaskRecord => typeof item === 'object' && item !== null)
-    } catch {
-      return []
-    }
-  }
-
-  private async persist(tasks: TaskRecord[]): Promise<void> {
-    await mkdir(this.dir, { recursive: true })
-    const tmp = `${this.file}.tmp`
-    await writeFile(tmp, JSON.stringify(tasks, null, 2), 'utf8')
-    await rename(tmp, this.file)
-  }
-
-  /** Run one mutation against the freshest on-disk state, serialized. */
-  mutate<T>(fn: (tasks: TaskRecord[]) => T | Promise<T>): Promise<T> {
-    const run = this.writeQueue.then(async () => {
-      const tasks = await this.load()
-      const result = await fn(tasks)
-      await this.persist(tasks)
-      return result
-    })
-    this.writeQueue = run.catch(() => undefined)
-    return run
-  }
-}
-
 /** Coerce an unknown workspace field into a non-empty path string, else null. */
 function asPath(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null
@@ -254,41 +189,6 @@ async function buildContext(
   return { currentDir, repoRoot, workspaces, worktrees }
 }
 
-/** Send a JSON response with `no-store` so the browser never caches task state. */
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  })
-  res.end(JSON.stringify(body))
-}
-
-/** Read a small JSON request body, rejecting oversize or malformed payloads. */
-async function readJsonBody(req: IncomingMessage, limit = 1_000_000): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = []
-  let size = 0
-  await new Promise<void>((resolvePromise, reject) => {
-    req.on('data', (chunk) => {
-      const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-      size += part.length
-      if (size > limit) {
-        reject(new Error('request body is too large'))
-        return
-      }
-      chunks.push(part)
-    })
-    req.on('end', () => resolvePromise())
-    req.on('error', reject)
-  })
-  const raw = Buffer.concat(chunks).toString('utf8')
-  if (raw.trim() === '') return {}
-  const parsed: unknown = JSON.parse(raw)
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('body must be a JSON object')
-  }
-  return parsed as Record<string, unknown>
-}
-
 /** Derive the conversations whose cwd is the task directory or inside it. */
 function conversationsFor(task: TaskRecord, sessions: SessionLike[]): ConversationSummary[] {
   const dir = task.directory
@@ -320,6 +220,18 @@ export function apply(ctx: Context, config?: Config): void {
     ? config.stateDir
     : join(dshHome, 'task-manager')
   const store = new TaskStore(stateDir)
+  const captains = new CaptainStore(stateDir)
+  const taskManager = createTaskManager({
+    store,
+    captains,
+    // Lazy resolution so late-mounting services (headless boots) appear.
+    resolveRuntime: () => ({
+      subagents: ctx.get('subagents') as SubagentsLike | undefined,
+      agents: ctx.get('agents') as AgentsRegistryLike | undefined,
+    }),
+  })
+  // Publish for the M2 model tools (consumed via ctx.get('taskManager')).
+  ctx.provide(TASK_MANAGER_SERVICE, taskManager)
 
   let webRegistered = false
   const registerWebSurface = (): void => {
@@ -384,6 +296,7 @@ export function apply(ctx: Context, config?: Config): void {
         const runMode = typeof body['runMode'] === 'string' ? body['runMode'] as RunMode : ''
         const branch = typeof body['worktreeBranch'] === 'string' ? body['worktreeBranch'].trim() : ''
         const worktreePath = typeof body['worktreePath'] === 'string' ? body['worktreePath'].trim() : ''
+        const needsFinalReview = body['needsFinalReview'] === true
         if (runMode !== 'cwd' && runMode !== 'new-worktree' && runMode !== 'existing-worktree') {
           json(res, 400, { error: 'runMode must be cwd, new-worktree, or existing-worktree' })
           return
@@ -443,6 +356,8 @@ export function apply(ctx: Context, config?: Config): void {
             runMode,
             directory,
             worktreeBranch,
+            dispatchRound: 0,
+            needsFinalReview,
             createdAt: now,
             updatedAt: now,
           }
@@ -491,6 +406,9 @@ export function apply(ctx: Context, config?: Config): void {
         }
       },
     }), 'task-manager: set-status route')
+
+    // M1 orchestration routes: /captains (GET list + PUT charter), /assign, /report.
+    registerOrchestrationRoutes(webServer, taskManager as TaskManagerService, (factory, label) => ctx.effect(factory, label))
   }
 
   registerWebSurface()
