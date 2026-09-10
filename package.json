@@ -1,0 +1,8 @@
+{
+  "name": "dsh-extensions",
+  "private": true,
+  "description": "Repo root manifest. No workspace glob on purpose: `pnpm test` delegates to the actively developed plugin so the root command stays meaningful without sweeping unrelated plugins.",
+  "scripts": {
+    "test": "pnpm -C plugins/dsh-task-manager run test"
+  }
+}
