@@ -65,6 +65,12 @@ interface ConversationSummary {
   createdAt?: number
   origin?: string
 }
+/** Latest captain report (覆盖式：a new report replaces the previous one). */
+interface TaskReport {
+  text: string
+  at: number
+  evidence?: string[]
+}
 interface Task {
   id: string
   title: string
@@ -74,6 +80,18 @@ interface Task {
   directory: string
   worktreeBranch?: string
   conversations?: ConversationSummary[]
+  /** 队长类别；首次派发时写入（t8 契约）。 */
+  category?: string
+  /** 派发到的队长会话 id；与 captains.json 中该类别的 sessionId 一致（t8 契约）。 */
+  captainSessionId?: string
+  /** 派发轮次：0 = 从未派发；每次成功 assign +1（含同单重派）。 */
+  dispatchRound: number
+  /** 最近一次队长回报（覆盖式）。 */
+  report?: TaskReport
+  /** 需终审：队长的 done 回报被钳制为 waiting-check，等用户终审后经 set-status 关单。 */
+  needsFinalReview: boolean
+  /** 最近一次催办时间（epoch ms）。 */
+  lastNudgeAt?: number
   createdAt: number
   updatedAt: number
 }
@@ -126,6 +144,19 @@ const dicts: Record<string, Record<string, string>> = {
     createdAt: 'Created',
     updatedAt: 'Updated',
     noRepo: 'Current directory is not a git repository.',
+    category: 'Category',
+    allCategories: 'All categories',
+    uncategorized: 'Uncategorized',
+    emptyFiltered: 'No tasks in this category.',
+    orchestration: 'Orchestration',
+    captainSession: 'Captain session',
+    dispatchRound: 'Dispatch round',
+    notDispatched: 'Not dispatched',
+    latestReport: 'Latest report',
+    noReport: 'No captain report yet.',
+    evidence: 'Evidence',
+    needsFinalReview: 'Final review required',
+    needsFinalReviewHint: 'When enabled, a captain’s done report is clamped to “Waiting for check” until you close the task after your final review.',
   },
   zh: {
     sideLabel: '任务管理',
@@ -161,10 +192,27 @@ const dicts: Record<string, Record<string, string>> = {
     createdAt: '创建时间',
     updatedAt: '更新时间',
     noRepo: '当前目录不在 git 仓库里。',
+    category: '类别',
+    allCategories: '全部类别',
+    uncategorized: '未分类',
+    emptyFiltered: '该类别下暂无任务。',
+    orchestration: '编排信息',
+    captainSession: '队长会话',
+    dispatchRound: '派发轮次',
+    notDispatched: '未派发',
+    latestReport: '最近回报',
+    noReport: '尚无队长回报。',
+    evidence: '证据路径',
+    needsFinalReview: '需终审',
+    needsFinalReviewHint: '勾选后，队长完成回报将被钳制为「等待检查」，待你终审后方可关单。',
   },
 }
 
 const STATUSES: Status[] = ['not-started', 'in-progress', 'waiting-reply', 'problem', 'waiting-check', 'done']
+
+/** Category-filter sentinel for tasks without a category (「未分类」). */
+const UNCATEGORIZED = '__uncategorized__'
+
 const STATUS_CLASS: Record<Status, string> = {
   'not-started': 'dsh-taskm-badge-muted',
   'in-progress': 'dsh-taskm-badge-active',
@@ -219,6 +267,11 @@ function shortPath(path: string): string {
     return `~/${parts.slice(3).join('/')}`
   }
   return path
+}
+
+/** Short display code for a captain session id (same derivation as the host half). */
+function shortSessionId(id: string): string {
+  return id.replace(/^session-/, '').slice(0, 8) || id.slice(0, 8)
 }
 
 function timeText(ms: number): string {
@@ -317,6 +370,19 @@ const CSS = `
 .dsh-taskm-secondary{display:inline-flex;align-items:center;height:34px;padding:0 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:13px}
 .dsh-taskm-secondary:hover{background:var(--dsw-alias-button-ghost-active-fill)}
 .dsh-taskm-hint{font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-filter{height:30px;padding:0 8px;box-sizing:border-box;max-width:200px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;flex:none}
+.dsh-taskm-kv{display:flex;flex-direction:column;gap:4px;font-size:12px;line-height:20px}
+.dsh-taskm-kv-row{display:flex;gap:10px;align-items:baseline}
+.dsh-taskm-kv-key{flex:none;min-width:72px;color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-kv-value{color:var(--dsw-alias-label-primary);word-break:break-all}
+.dsh-taskm-report{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-taskm-report-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-report-text{white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}
+.dsh-taskm-evidence{display:flex;flex-direction:column;gap:2px}
+.dsh-taskm-evidence-item{font-family:ui-monospace,monospace;font-size:12px;color:var(--dsw-alias-label-secondary);word-break:break-all}
+.dsh-taskm-checkbox{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;cursor:pointer;font-size:13px;color:var(--dsw-alias-label-primary)}
+.dsh-taskm-checkbox:hover{border-color:var(--dsw-alias-brand-primary)}
+.dsh-taskm-checkbox input{margin:0;accent-color:var(--dsw-alias-brand-primary)}
 `
 
 /**
@@ -368,6 +434,7 @@ function NewTaskDialog(props: {
   const [directory, setDirectory] = useState(props.context.currentDir)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [needsFinalReview, setNeedsFinalReview] = useState(false)
 
   const handleContent = (value: string): void => {
     setContent(value)
@@ -402,6 +469,7 @@ function NewTaskDialog(props: {
         directory,
         worktreeBranch: branch,
         worktreePath,
+        needsFinalReview,
       }
       const created = await postJSON<Task>('/plugins/dsh-task-manager/create', payload)
       props.onCreated(created)
@@ -520,6 +588,18 @@ function NewTaskDialog(props: {
           </div>
         ) : null}
 
+        <div className="dsh-taskm-field">
+          <label className="dsh-taskm-checkbox">
+            <input
+              type="checkbox"
+              checked={needsFinalReview}
+              onChange={(event) => setNeedsFinalReview(event.target.checked)}
+            />
+            <span>{translate('needsFinalReview')}</span>
+          </label>
+          <span className="dsh-taskm-hint">{translate('needsFinalReviewHint')}</span>
+        </div>
+
         {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
 
         <div className="dsh-taskm-footer">
@@ -581,8 +661,38 @@ function TaskDetail(props: {
             <option key={status} value={status}>{statusLabel(translate, status)}</option>
           ))}
         </select>
+        {task.category !== undefined && task.category !== '' ? (
+          <span className="dsh-taskm-badge dsh-taskm-badge-muted">{task.category}</span>
+        ) : null}
+        {task.needsFinalReview === true ? (
+          <span className="dsh-taskm-badge dsh-taskm-badge-check">{translate('needsFinalReview')}</span>
+        ) : null}
         <span>{translate('createdAt')}: {new Date(task.createdAt).toLocaleString()}</span>
         <span>{translate('updatedAt')}: {new Date(task.updatedAt).toLocaleString()}</span>
+      </div>
+
+      <div className="dsh-taskm-detail-section">
+        <span className="dsh-taskm-detail-label">{translate('orchestration')}</span>
+        <div className="dsh-taskm-kv">
+          <div className="dsh-taskm-kv-row">
+            <span className="dsh-taskm-kv-key">{translate('category')}</span>
+            <span className="dsh-taskm-kv-value">{task.category ?? translate('notDispatched')}</span>
+          </div>
+          <div className="dsh-taskm-kv-row">
+            <span className="dsh-taskm-kv-key">{translate('captainSession')}</span>
+            <span className="dsh-taskm-kv-value">
+              {task.captainSessionId !== undefined && task.captainSessionId !== '' ? (
+                <span className="dsh-taskm-conv-id">{shortSessionId(task.captainSessionId)}</span>
+              ) : (
+                translate('notDispatched')
+              )}
+            </span>
+          </div>
+          <div className="dsh-taskm-kv-row">
+            <span className="dsh-taskm-kv-key">{translate('dispatchRound')}</span>
+            <span className="dsh-taskm-kv-value">{(task.dispatchRound ?? 0) > 0 ? task.dispatchRound : translate('notDispatched')}</span>
+          </div>
+        </div>
       </div>
 
       <div className="dsh-taskm-detail-section">
@@ -617,19 +727,46 @@ function TaskDetail(props: {
         )}
       </div>
 
+      <div className="dsh-taskm-detail-section">
+        <span className="dsh-taskm-detail-label">{translate('latestReport')}</span>
+        {task.report === undefined ? (
+          <span className="dsh-taskm-hint">{translate('noReport')}</span>
+        ) : (
+          <div className="dsh-taskm-report">
+            <div className="dsh-taskm-report-head">
+              <span className={`dsh-taskm-badge ${STATUS_CLASS[task.status]}`}>
+                {statusLabel(translate, task.status)}
+              </span>
+              <span>{new Date(task.report.at).toLocaleString()}</span>
+            </div>
+            <div className="dsh-taskm-report-text">{task.report.text}</div>
+            {task.report.evidence !== undefined && task.report.evidence.length > 0 ? (
+              <div className="dsh-taskm-evidence">
+                <span className="dsh-taskm-detail-label">{translate('evidence')}</span>
+                {task.report.evidence.map((item) => (
+                  <span key={item} className="dsh-taskm-evidence-item">{shortPath(item)}</span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
       {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
     </div>
   )
 }
 
-/** Task list: one row per task with title, status badge, and location. */
+/** Task list: one row per task with title, status badge, category chip, and location. */
 function TaskList(props: {
   tasks: Task[]
+  /** Locale key for the zero-tasks message; defaults to the global empty state. */
+  emptyKey?: string
   onCreate: () => void
   onOpen: (id: string) => void
 }): ReactElement {
   if (props.tasks.length === 0) {
-    return <div className="dsh-taskm-empty">{translate('empty')}</div>
+    return <div className="dsh-taskm-empty">{translate(props.emptyKey ?? 'empty')}</div>
   }
   return (
     <div className="dsh-taskm-list">
@@ -644,6 +781,9 @@ function TaskList(props: {
           <span className={`dsh-taskm-badge ${STATUS_CLASS[task.status]}`}>
             {statusLabel(translate, task.status)}
           </span>
+          {task.category !== undefined && task.category !== '' ? (
+            <span className="dsh-taskm-badge dsh-taskm-badge-muted">{task.category}</span>
+          ) : null}
           <span className="dsh-taskm-row-sub">{timeText(task.updatedAt)}</span>
           <span className="dsh-taskm-row-sub">{shortPath(task.directory)}</span>
         </button>
@@ -659,6 +799,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [context, setContext] = useState<ContextInfo | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const sessionIdRef = useRef(props.sessionId)
@@ -701,6 +842,20 @@ function TaskView(props: { sessionId?: string }): ReactElement {
     setTasks((previous) => previous.map((task) => (task.id === next.id ? next : task)))
   }
 
+  // Category facets derive from the loaded tasks (「未分类」 covers absent/empty).
+  const categories = Array.from(
+    new Set(
+      tasks
+        .map((task) => task.category)
+        .filter((value): value is string => typeof value === 'string' && value !== ''),
+    ),
+  ).sort((a, b) => a.localeCompare(b))
+  const filteredTasks = categoryFilter === ''
+    ? tasks
+    : categoryFilter === UNCATEGORIZED
+      ? tasks.filter((task) => task.category === undefined || task.category === '')
+      : tasks.filter((task) => task.category === categoryFilter)
+
   if (loading) {
     return <div className="dsh-taskm-main"><div className="dsh-taskm-main-body">{translate('loading')}</div></div>
   }
@@ -713,6 +868,20 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         ) : (
           <span className="dsh-taskm-main-title">{translate('panelTitle')}</span>
         )}
+        {view === 'list' ? (
+          <select
+            className="dsh-taskm-filter"
+            value={categoryFilter}
+            aria-label={translate('category')}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+          >
+            <option value="">{translate('allCategories')}</option>
+            <option value={UNCATEGORIZED}>{translate('uncategorized')}</option>
+            {categories.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
+        ) : null}
         <button type="button" className="dsh-taskm-main-create" onClick={() => setDialogOpen(true)}>
           {translate('newTask')}
         </button>
@@ -725,7 +894,8 @@ function TaskView(props: { sessionId?: string }): ReactElement {
 
         {view === 'list' ? (
           <TaskList
-            tasks={tasks}
+            tasks={filteredTasks}
+            emptyKey={categoryFilter === '' ? undefined : 'emptyFiltered'}
             onCreate={() => setDialogOpen(true)}
             onOpen={(id) => {
               const task = tasks.find((item) => item.id === id) ?? null
