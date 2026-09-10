@@ -93,6 +93,15 @@ list(filter?: { category?, status? }): Promise<TaskRecord[]>  // updatedAt 降�
 
 前 5 个名字即 `MANAGEMENT_TOOL_NAMES`（orchestrator.ts 导出），队长子会话的 per-child `toolFilter` 按名 deny；改名必须两处同步，否则 `tools.restrict()` 报 unknown name。工具定义经真实 `defineTool`（`@deepseek-ai/dsh-tools` devDependency）注册，参数校验由注册表强制。
 
+### 双入口挂载（ADR-0004）
+
+| 入口 | 引用方式 | 提供 | 消费 |
+|---|---|---|---|
+| 主入口（host bundle） | profile bundle 行 `dsh-task-manager` | `taskManager` 服务 + `/plugins/dsh-task-manager/*` 路由 + 双 store 持久层 | host 平面服务 |
+| 工具子路径 | 预设工具行 `dsh-task-manager/tools` | 向**调用方会话作用域**注册 7 个 `task_*` 工具（无服务、无路由） | `ctx.get('taskManager')` + `inject: ['tools']` |
+
+预设行**不得**引用整包（会与 host bundle 碰撞：服务重复注册 + 路由重挂）；bundle 侧与预设侧**严禁**双注册同名工具。会话能否见到 `task_*` 工具取决于其预设是否挂 `dsh-task-manager/tools` 行。
+
 派发语义：`assign` 新类别/无会话 → `startContinuable({provider:'spawn', label:'队长·<类别>', childId, request:{prompt, parent: managerAgent, persona: 章程+简报, toolFilter: {deny: [管理工具×5]}}, signal})`（managerSessionId 必填）；已有会话 → live 走 `Agent.followup`（唤醒）、不 live 走 `subagents.followup(managerAgent, …)` 冷恢复。`charter` 仅创建分支生效（persona 建会话时定型）。
 
 ### HTTP 路由（GUI 用，无身份语义）

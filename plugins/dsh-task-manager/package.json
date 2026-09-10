@@ -1,6 +1,6 @@
 {
   "name": "dsh-task-manager",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "DSH web GUI task manager with Manager orchestration v1: task commander GUI, 6-state task list, worktree support, captain registry (captains.json), taskManager host service (assign / identity-checked report / listMine / nudge), category-charter persona + toolFilter captain sessions (ADR-0003), and orchestration HTTP routes — pure profile-bundle overlay, zero dsh source changes",
   "type": "module",
   "main": "./lib/index.js",
@@ -15,7 +15,11 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./tools": {
+      "types": "./lib/tools.d.ts",
+      "default": "./lib/tools.js"
+    }
   },
   "files": [
     "lib",

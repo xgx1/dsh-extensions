@@ -21,7 +21,7 @@ const PLATFORM_MODULES = [
 export default defineConfig([
   {
     name: ID,
-    entry: { index: 'src/index.ts' },
+    entry: { index: 'src/index.ts', tools: 'src/tools-entry.ts' },
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',
