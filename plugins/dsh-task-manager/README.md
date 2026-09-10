@@ -93,6 +93,8 @@ list(filter?: { category?, status? }): Promise<TaskRecord[]>  // updatedAt 降�
 
 前 5 个名字即 `MANAGEMENT_TOOL_NAMES`（orchestrator.ts 导出），队长子会话的 per-child `toolFilter` 按名 deny；改名必须两处同步，否则 `tools.restrict()` 报 unknown name。工具定义经真实 `defineTool`（`@deepseek-ai/dsh-tools` devDependency）注册，参数校验由注册表强制。
 
+注册点**只有**预设行（`dsh-task-manager/tools`）。host bundle 主入口不得注册这 7 个名字：bundle 的注册落在 tools 注册表的全局层，任何预设的会话都会继承，等于把管理工具发给所有会话（ADR-0004 禁止的双注册）。`tests/entry-split.test.ts` 固定这条边界——bundle `apply()` 后零工具注册、且根本不解析 `tools` 服务。
+
 ### 双入口挂载（ADR-0004）
 
 | 入口 | 引用方式 | 提供 | 消费 |

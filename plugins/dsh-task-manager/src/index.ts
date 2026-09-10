@@ -30,7 +30,6 @@ import { STATUSES, type ConversationSummary, type RunMode, type Status, type Tas
 import { CaptainStore, TaskStore } from './stores.ts'
 import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
 import { registerOrchestrationRoutes, type RouteRegistrar } from './orchestration-routes.ts'
-import { registerTaskTools } from './tools.ts'
 import { json, readJsonBody } from './http.ts'
 
 const execFileAsync = promisify(execFile)
@@ -412,25 +411,17 @@ export function apply(ctx: Context, config?: Config): void {
     registerOrchestrationRoutes(webServer, taskManager as TaskManagerService, (factory, label) => ctx.effect(factory, label))
   }
 
-  // M2 model tools: registered into the shared host tools registry as soon as
-  // the `tools` service exists (lazy, same retry style as the web surface).
-  let toolsRegistered = false
-  const registerTools = (): void => {
-    if (toolsRegistered) return
-    const tools = ctx.get('tools') as { register(definition: unknown): () => void } | undefined
-    if (tools === undefined) return
-    toolsRegistered = true
-    registerTaskTools(tools, taskManager as TaskManagerService, (factory, label) => ctx.effect(factory, label))
-  }
-
+  // ADR-0004: the host bundle provides the service, routes, and stores ONLY.
+  // It must never register the model tools — a session sees `task_*` because
+  // its preset mounts the `dsh-task-manager/tools` row, which registers them
+  // into that session's own tools scope. Registering them here as well would
+  // put all seven names in the global layer, where every session — whatever
+  // its preset — would inherit them, and would double-register the names the
+  // ADR forbids (tests/entry-split.test.ts guards this).
   registerWebSurface()
-  registerTools()
   ctx.on('internal/service', (serviceName) => {
     if (serviceName === 'webServer' || serviceName === 'httpServer' || serviceName === 'sessions') {
       registerWebSurface()
-    }
-    if (serviceName === 'tools') {
-      registerTools()
     }
   })
 }
