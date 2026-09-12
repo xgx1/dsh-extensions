@@ -20,7 +20,7 @@ const LEGACY_TASKS = [
     content: 'ce shi',
     status: 'not-started',
     runMode: 'cwd',
-    directory: '/home/sx/MyAI',
+    directory: '/home/sx/projects/MyAI',
     createdAt: 1787993715031,
     updatedAt: 1787993732980,
   },
@@ -30,7 +30,7 @@ const LEGACY_TASKS = [
     content: 'ce shi biao ti ying',
     status: 'not-started',
     runMode: 'cwd',
-    directory: '/home/sx/MyAI',
+    directory: '/home/sx/projects/MyAI',
     createdAt: 1787993865199,
     updatedAt: 1787993865199,
   },
@@ -46,7 +46,7 @@ describe('normalizeTask (读时补默认)', () => {
     expect(task?.content).toBe('ce shi')
     expect(task?.status).toBe('not-started')
     expect(task?.runMode).toBe('cwd')
-    expect(task?.directory).toBe('/home/sx/MyAI')
+    expect(task?.directory).toBe('/home/sx/projects/MyAI')
     expect(task?.createdAt).toBe(1787993715031)
     expect(task?.updatedAt).toBe(1787993732980)
     // 缺失的新字段补默认
@@ -129,7 +129,7 @@ describe('TaskStore migration round-trip', () => {
       expect(raw).toHaveLength(2)
       expect(raw[1]?.['title']).toBe('ce shi biao ti ying') // 第二条旧记录原样
       expect(raw[1]?.['dispatchRound']).toBe(0)
-      expect(raw[0]?.['directory']).toBe('/home/sx/MyAI')
+      expect(raw[0]?.['directory']).toBe('/home/sx/projects/MyAI')
       expect(raw[0]?.['category']).toBe('research')
       expect(raw[0]?.['captainSessionId']).toBe('session-cap')
       expect(raw[0]?.['dispatchRound']).toBe(1)

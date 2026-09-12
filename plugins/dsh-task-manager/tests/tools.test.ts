@@ -55,7 +55,7 @@ async function rig() {
         content: `content of ${id}`,
         status: 'not-started',
         runMode: 'cwd',
-        directory: '/home/sx/MyAI/demo',
+        directory: '/home/sx/projects/MyAI/demo',
         dispatchRound: 0,
         needsFinalReview,
         createdAt: 1,

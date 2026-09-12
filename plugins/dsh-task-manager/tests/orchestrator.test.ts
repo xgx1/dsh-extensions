@@ -40,7 +40,7 @@ async function makeService(options?: { failCreation?: Error }) {
         content: `content of ${id}`,
         status: 'not-started',
         runMode: 'cwd',
-        directory: '/home/sx/MyAI/demo',
+        directory: '/home/sx/projects/MyAI/demo',
         dispatchRound: 0,
         needsFinalReview: false,
         createdAt: 1,
@@ -72,7 +72,7 @@ describe('assign — create branch (a3 前半)', () => {
       const persona = spec?.request.persona ?? ''
       expect(persona).toContain('研究类章程：只做调研，不改代码。')
       expect(persona).toContain('task-a')
-      expect(persona).toContain('/home/sx/MyAI/demo')
+      expect(persona).toContain('/home/sx/projects/MyAI/demo')
       expect(spec?.request.prompt).toEqual([{ type: 'text', text: persona }])
       // toolFilter = 排除全部管理工具（deny-list，定案补记配置面）
       expect(spec?.request.toolFilter).toEqual(CAPTAIN_TOOL_FILTER)
@@ -142,7 +142,7 @@ describe('assign — reuse branch (a3 后半)', () => {
       expect(t.subagents.coldFollowups).toHaveLength(0) // 走热路径
       const brief = captain.lastFollowupText()
       expect(brief).toContain('task-b')
-      expect(brief).toContain('/home/sx/MyAI/demo')
+      expect(brief).toContain('/home/sx/projects/MyAI/demo')
       expect(brief).not.toContain('研究类章程') // 章程只在创建期 persona 注入
 
       const tasks = await t.store.load()
@@ -234,13 +234,13 @@ describe('report — identity enforcement (a4)', () => {
         'task-a',
         'waiting-check',
         '调研完成，结论见报告',
-        ['/home/sx/MyAI/demo/out.md', 'cmd output #1'],
+        ['/home/sx/projects/MyAI/demo/out.md', 'cmd output #1'],
       )
       expect(reported.status).toBe('waiting-check')
       expect(reported.report).toEqual({
         text: '调研完成，结论见报告',
         at: 1_000,
-        evidence: ['/home/sx/MyAI/demo/out.md', 'cmd output #1'],
+        evidence: ['/home/sx/projects/MyAI/demo/out.md', 'cmd output #1'],
       })
       expect(reported.updatedAt).toBe(1_000)
     } finally {

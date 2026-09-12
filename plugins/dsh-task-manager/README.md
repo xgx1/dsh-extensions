@@ -118,7 +118,7 @@ list(filter?: { category?, status? }): Promise<TaskRecord[]>  // updatedAt 降�
 ## 安装
 
 ```sh
-dsh plugin --profile web add link:/home/sx/MyAI/dsh-extensions/plugins/dsh-task-manager
+dsh plugin --profile web add link:/home/sx/projects/MyAI/dsh-extensions/plugins/dsh-task-manager
 # 重启 web GUI 服务使 bundle 生效
 systemctl --user restart dsh-web
 # 浏览器刷新页面加载新的 client bundle
