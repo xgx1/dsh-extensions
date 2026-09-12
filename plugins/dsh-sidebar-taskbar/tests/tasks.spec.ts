@@ -30,12 +30,30 @@ describe('classifyTasks', () => {
     const state = list([
       summary({ id: 'running-a', running: true, updatedAt: 3 }),
       summary({ id: 'done-a', completed: true, updatedAt: 2 }),
-      summary({ id: 'wait-a', pendingInteraction: 'question', updatedAt: 1 }),
+      summary({ id: 'wait-a', updatedAt: 1 }),
     ])
-    const groups = classifyTasks(state)
+    const groups = classifyTasks(state, new Set(['wait-a'] as SessionId[]))
     expect(groups.done.map((row) => row.id)).toEqual(['done-a'])
     expect(groups.running.map((row) => row.id)).toEqual(['running-a'])
     expect(groups.waiting.map((row) => row.id)).toEqual(['wait-a'])
+  })
+
+  it('takes the waiting group from the pending-interaction source, ranked above running', () => {
+    const state = list([
+      summary({ id: 'busy-but-asking', running: true, updatedAt: 1 }),
+    ])
+    const groups = classifyTasks(state, new Set(['busy-but-asking'] as SessionId[]))
+    expect(groups.waiting.map((row) => row.id)).toEqual(['busy-but-asking'])
+    expect(groups.running).toEqual([])
+  })
+
+  it('accepts the service Map form of the pending snapshot', () => {
+    const state = list([summary({ id: 'ask', updatedAt: 1 })])
+    const pending = new Map<SessionId, unknown>([
+      ['ask' as SessionId, { key: 'k', kind: 'question', sessionId: 'ask' }],
+    ])
+    const groups = classifyTasks(state, pending)
+    expect(groups.waiting.map((row) => row.id)).toEqual(['ask'])
   })
 
   it('sorts finished rows newest-first by updatedAt', () => {
@@ -68,9 +86,9 @@ describe('classifyTasks', () => {
 
   it('keeps a waiting session visible even when it also completed earlier', () => {
     const state = list([
-      summary({ id: 'mixed', pendingInteraction: 'approval', completed: true, updatedAt: 7 }),
+      summary({ id: 'mixed', completed: true, updatedAt: 7 }),
     ])
-    const groups = classifyTasks(state)
+    const groups = classifyTasks(state, new Set(['mixed'] as SessionId[]))
     // Waiting outranks the green done state (the user owes an answer).
     expect(groups.waiting.map((row) => row.id)).toEqual(['mixed'])
     expect(groups.done).toEqual([])

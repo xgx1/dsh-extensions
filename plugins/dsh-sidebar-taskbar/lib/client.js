@@ -9,8 +9,8 @@ window.__ModuleLoader__.load({
 		let react_jsx_runtime = require("react/jsx-runtime");
 		//#region src/client/tasks.ts
 		/** True when the summary carries any signal the task bar should show. */
-		function isActive(summary) {
-			return summary.running || summary.pendingInteraction !== void 0 || summary.completed === true;
+		function isActive(summary, pending) {
+			return pending || summary.running || summary.completed === true;
 		}
 		/** Sort one group: finished newest-first, live/waiting oldest-first. */
 		function byUpdatedAt(rows, summaries, newestFirst) {
@@ -21,24 +21,28 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/**
-		* Classify one session list snapshot into the three task-bar groups.
+		* Classify one session list snapshot plus the pending-interaction snapshot into
+		* the three task-bar groups.
 		* @param state - the sessions list snapshot.
+		* @param pending - Sessions currently owning a pending user interaction
+		*   (`ctx.uiSession.pendingInteractions`); a Set or the service's Map both work.
 		* @returns the three groups (each empty when nothing signals).
 		*/
-		function classifyTasks(state) {
+		function classifyTasks(state, pending = /* @__PURE__ */ new Map()) {
 			const done = [];
 			const running = [];
 			const waiting = [];
 			const summaries = /* @__PURE__ */ new Map();
 			for (const id of state.ids) {
 				const summary = state.byId[id];
-				if (summary === void 0 || !isActive(summary)) continue;
+				const isPending = pending.has(id);
+				if (summary === void 0 || !isActive(summary, isPending)) continue;
 				summaries.set(id, summary);
 				const row = {
 					id,
 					title: summary.displayTitle
 				};
-				if (summary.pendingInteraction !== void 0) waiting.push(row);
+				if (isPending) waiting.push(row);
 				else if (summary.running) running.push(row);
 				else done.push(row);
 			}
@@ -146,7 +150,7 @@ window.__ModuleLoader__.load({
 		* @returns the bar, or null when nothing signals or the sidebar is collapsed.
 		*/
 		function TaskBar({ sessions }) {
-			const groups = classifyTasks((0, react.useSyncExternalStore)((callback) => sessions.list.subscribe(callback), () => sessions.list.getSnapshot()));
+			const groups = classifyTasks((0, react.useSyncExternalStore)((callback) => sessions.list.subscribe(callback), () => sessions.list.getSnapshot()), (0, react.useSyncExternalStore)((callback) => sessions.pending.subscribe(callback), () => sessions.pending.getSnapshot()));
 			const total = groups.done.length + groups.running.length + groups.waiting.length;
 			const container = (0, react.useRef)(null);
 			const [collapsed, setCollapsed] = (0, react.useState)(false);
@@ -239,18 +243,20 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/index.ts
-		/** Required services: the sessions list + navigation. */
-		const inject = ["sessions"];
+		/** Required services: the sessions list + navigation, and pending-interaction state. */
+		const inject = ["sessions", "uiSession"];
 		/**
 		* Mount the browser half.
 		* @param ctx - client root context.
 		*/
 		function apply(ctx) {
+			const uiSession = ctx.uiSession;
 			ctx.effect(() => mountTaskBar({
 				list: ctx.sessions.list,
 				open: (id) => {
 					ctx.sessions.open(id);
-				}
+				},
+				pending: uiSession.pendingInteractions
 			}), "dsh-sidebar-taskbar: mount");
 		}
 		//#endregion

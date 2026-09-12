@@ -8,6 +8,12 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import { classifyTasks, type TaskRow } from './tasks.ts'
 
+/** Read-only observable source of one snapshot (the shape `ctx.sessions.list` and `uiSession.pendingInteractions` share). */
+export interface PendingSource {
+  getSnapshot(): ReadonlyMap<SessionId, unknown>
+  subscribe(callback: () => void): () => void
+}
+
 /** Sessions face the bar needs (structural, duck-typed against ctx.sessions). */
 export interface TaskBarSessions {
   list: {
@@ -15,6 +21,8 @@ export interface TaskBarSessions {
     subscribe(callback: () => void): () => void
   }
   open(id: SessionId): void
+  /** Pending user interactions per Session, from the `uiSession` client service. */
+  pending: PendingSource
 }
 
 /** Sidebar column width below which the rail is considered collapsed. */
@@ -127,7 +135,11 @@ export function TaskBar({ sessions }: { sessions: TaskBarSessions }) {
     (callback) => sessions.list.subscribe(callback),
     () => sessions.list.getSnapshot(),
   )
-  const groups = classifyTasks(list)
+  const pending = useSyncExternalStore(
+    (callback) => sessions.pending.subscribe(callback),
+    () => sessions.pending.getSnapshot(),
+  )
+  const groups = classifyTasks(list, pending)
   const total = groups.done.length + groups.running.length + groups.waiting.length
   const container = useRef<HTMLDivElement>(null)
   const [collapsed, setCollapsed] = useState(false)
