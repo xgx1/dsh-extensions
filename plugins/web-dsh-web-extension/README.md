@@ -36,6 +36,8 @@ pnpm test        # vitest（persist / boot）
 pnpm build       # tsdown → lib/index.js + lib/client.js
 ```
 
+构建依赖通过 `link:` 指向本机 harness 工作区 `/home/sx/projects/MyAI/master`（当前 0.1.5 客户端 SDK）：snapshot store 来自 `@deepseek-ai/dsh-client-store`（平台种子），client bundle 的 external 仅含 0.1.5 `PLATFORM_MODULES` 中的种子；harness 升级后若种子表变化，需同步 `tsdown.config.ts` 并重新构建。
+
 ## 出处
 
 技术路线复用官方 `packages/client/ui-theme` 的 tapIndex 注入模式与 `ui-conversation` 的 `settings.general.item` 注册模式；持久化风格沿用本机已装 `dsh-aionui-panel` 的 localStorage 先例。构建产物形态（`__ModuleLoader__.load` + platform-module external）与官方 client bundle 一致。

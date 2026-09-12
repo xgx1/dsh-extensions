@@ -9,17 +9,12 @@ import { defineConfig } from 'tsdown'
 
 const ID = 'web-dsh-web-extension'
 
-/** Module specifiers the web shell shares into its frozen module table. */
+/** Module specifiers the web shell shares into its frozen module table (0.1.5 platform seeds). */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
-  // Documented harness exemption: the snapshot-store engine rides the module
-  // table under runtime's /client subpath.
-  '@deepseek-ai/dsh-client-runtime/client',
 ]
 
 export default defineConfig([

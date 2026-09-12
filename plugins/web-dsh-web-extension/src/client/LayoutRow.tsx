@@ -4,28 +4,18 @@
  * (left/centered). Inline styles keep the extension free of a CSS-module
  * build pipeline; token names come from the official design system.
  */
-import { useState } from 'react'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { useEffect, useState } from 'react'
+import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { LayoutPreference } from './persist.ts'
+import { applyMarkers } from './persist.ts'
+import type { createLayoutRowStore } from './settings-store.ts'
 import { NS, type WebDshKey } from './locales.ts'
 
-/** Registration-side preference face. */
-export interface LayoutRowInjected {
-  hooks: {
-    /** Persisted layout preference bound as usePreference. */
-    preference: SnapshotStore<LayoutPreference>
-  }
-  /** Change one or both layout fields. */
-  setPreference: (patch: Partial<LayoutPreference>) => void
-}
-
-/** Full Settings-row props. */
+/** Full Settings-row props: runtime share, the layout store seat, and the locale seat. */
 export type LayoutRowProps =
   PropsRuntime<'settings.general.item'>
+  & PropsStore<ReturnType<typeof createLayoutRowStore>>
   & PropsLocale<typeof NS>
-  & InjectFace<LayoutRowInjected>
 
 /** Content-width choices; labels resolve through the locale dictionary. */
 const WIDTH_OPTIONS: readonly { id: 'wide' | 'standard'; label: WebDshKey }[] = [
@@ -88,8 +78,11 @@ const styles: Record<string, React.CSSProperties> = {
  * @param props - composed Settings slot props.
  * @returns the preference row.
  */
-export function LayoutRow({ usePreference, setPreference, t }: LayoutRowProps) {
-  const preference = usePreference(value => value)
+export function LayoutRow({ useStore, actions, t }: LayoutRowProps) {
+  const preference = useStore(value => value)
+  // Keep the document-root markers that gate the override stylesheet in step
+  // with the persisted preference whenever the row changes it.
+  useEffect(() => { applyMarkers(preference) }, [preference])
   const [widthOpen, setWidthOpen] = useState(false)
   const [alignOpen, setAlignOpen] = useState(false)
   const widthLabel = preference.wide ? 'settings.layout.width.wide' : 'settings.layout.width.standard'
@@ -108,7 +101,7 @@ export function LayoutRow({ usePreference, setPreference, t }: LayoutRowProps) {
         selectedId={preference.wide ? 'wide' : 'standard'}
         onSelect={(id) => {
           setWidthOpen(false)
-          setPreference({ wide: id === 'wide' })
+          actions.set({ wide: id === 'wide' })
         }}
         align="end"
         portal
@@ -132,7 +125,7 @@ export function LayoutRow({ usePreference, setPreference, t }: LayoutRowProps) {
         selectedId={preference.left ? 'left' : 'center'}
         onSelect={(id) => {
           setAlignOpen(false)
-          setPreference({ left: id === 'left' })
+          actions.set({ left: id === 'left' })
         }}
         align="end"
         portal
