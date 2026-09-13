@@ -7,9 +7,6 @@
 [submodule "skills/epicgames-ue-skills"]
 	path = skills/epicgames-ue-skills
 	url = https://github.com/xgx1/epicgames-ue-skills.git
-[submodule "skills/kepano-obsidian-skills"]
-	path = skills/kepano-obsidian-skills
-	url = https://github.com/xgx1/kepano-obsidian-skills.git
 [submodule "skills/mattpocock-skills"]
 	path = skills/mattpocock-skills
 	url = https://github.com/xgx1/mattpocock-skills.git

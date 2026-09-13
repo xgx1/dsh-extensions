@@ -44,7 +44,7 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 | `self-ue` / `self-ops` / `self-dsh` | 本机自写（无上游） | 26 / 7 / 5 |
 | `sipherxyz-universal-ue-skills` | [sipherxyz/universal-ue-skills](https://github.com/sipherxyz/universal-ue-skills) | 15 |
 | `unrealxu-ue5-skills` | [UnrealXu/UnrealEngine5-Skills](https://github.com/UnrealXu/UnrealEngine5-Skills) | 11 |
-| `rider-skills` / `kepano-obsidian-skills` / `dietrichgebert-ponytail` | JetBrains / kepano / DietrichGebert 的 fork | 各 6 |
+| `rider-skills` / `dietrichgebert-ponytail` | JetBrains / DietrichGebert 的 fork | 各 6 |
 | `epicgames-ue-skills` / `clawic-marketplace` | EpicGames 官方 / clawic | 各 3 |
 
 （技能名以下载进 `~/.dsh/skills/` 的为准；数字会随安装器发现结果变化，权威值是 `./install-skill.sh --list`。）
