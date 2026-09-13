@@ -10,9 +10,9 @@
  * - Captain: task_claim (read one's dispatched queue) / task_report (identity-
  *   checked write-back; the NOT_CAPTAIN line lives in the taskManager service).
  *
- * Identity comes from `exec.agent.id` — the calling agent's session id (same
- * structural read as dsh-continual-evolve). Definitions go through the real
- * `defineTool` so argument validation is registry-enforced.
+ * Identity comes from `exec.agent.id` — the calling agent's session id.
+ * Definitions go through the real `defineTool` so argument validation is
+ * registry-enforced.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { STATUSES, type Status } from './records.ts'
