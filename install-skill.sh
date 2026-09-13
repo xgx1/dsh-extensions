@@ -76,17 +76,28 @@ skill_name() {
 }
 
 # 源 1：dsh-extensions/skills/<分组>/**/SKILL.md
-#   排除测试/示例噪音（上游仓里带 fixtures、sample 之类的 SKILL.md 不是真技能）；
-#   同一技能被多份副本携带时（上游常同时给多个 harness 各放一份）取**路径最浅**的那份，
-#   保证 canonical 目录（skills/、.agents/skills/）优先于 .openclaw/skills/ 之类的分发副本。
+#   不限深度（上游层级不一：skills/<名>/、skills/<分类>/<名>/、.agents/skills/<名>/、
+#   plugins/<插件>/skills/<名>/……深处还有更深的结构，硬编码层数会静默漏技能）。
+#   排序按「路径深度优先」：同一技能被多份副本携带时（上游常给多个 harness 各放一份）
+#   取最浅的那份，故 canonical 目录（skills/、.agents/skills/）优先于 .openclaw/skills/ 之类的分发副本。
+#   排除测试/示例噪音，且**把跳过的列出来**（静默跳过是过去的教训）。
 if [ -d "$DSH_EXT/skills" ]; then
-  while IFS= read -r f; do add_skill "$(dirname "$f")"; done < <(
-    find "$DSH_EXT/skills" -mindepth 2 -maxdepth 6 -type f -name SKILL.md \
+  declare -a skipped=()
+  while IFS= read -r f; do
+    d="$(dirname "$f")"
+    case "$d" in
+      */tests/*|*/test/*|*/fixtures/*|*/examples/*|*/sample*) skipped+=("$d"); continue ;;
+    esac
+    add_skill "$d"
+  done < <(
+    find "$DSH_EXT/skills" -mindepth 2 -type f -name SKILL.md \
       -not -path '*/.git/*' -not -path '*/node_modules/*' \
-      -not -path '*/tests/*' -not -path '*/test/*' -not -path '*/fixtures/*' \
-      -not -path '*/examples/*' -not -path '*/sample*/*' \
       -printf '%d\t%p\n' | sort -k1,1n -k2,2 | cut -f2-
   )
+  if [ "${#skipped[@]}" -gt 0 ]; then
+    echo "跳过（测试/示例噪音，共 ${#skipped[@]} 个）：" >&2
+    for d in "${skipped[@]}"; do echo "  ${d#"$DSH_EXT"/}" >&2; done
+  fi
 fi
 # 源 2：update-app/skills/<技能>
 [ -d "$UPDATE_APP/skills" ] && for sk in "$UPDATE_APP"/skills/*/; do add_skill "$sk"; done

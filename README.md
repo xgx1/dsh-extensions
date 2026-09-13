@@ -22,7 +22,7 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 **技能源有三处**：
 
-1. 本仓 `skills/<分组>/**/SKILL.md`（**递归发现**：技能目录 = 含 `SKILL.md` 的目录，深度 ≤ 6；排除 `tests/`、`fixtures/`、`examples/`、`sample*/` 噪音；同名副本取路径最浅的那份。技能名优先取 frontmatter 的 `name:`，没有才用目录名）
+1. 本仓 `skills/<分组>/**/SKILL.md`（**递归发现、不限深度**：技能目录 = 含 `SKILL.md` 的目录。上游层级不一——`skills/<名>/`、`skills/<分类>/<名>/`、`.agents/skills/<名>/`、`plugins/<插件>/skills/<名>/`——硬编码层数会静默漏技能。排除 `tests/`/`fixtures/`/`examples/`/`sample*` 噪音并**把跳过的打印出来**；同名副本取路径最浅的那份（故 `skills/`、`.agents/skills/` 优先于 `.openclaw/skills/` 之类的分发副本）。技能名优先取 frontmatter 的 `name:`，没有才用目录名）
 2. `~/projects/update-app/skills/`（`update-all` 技能随它的 CLI 走）
 3. `~/projects/<项目>/.dsh/skills/`（**项目专用技能**放各项目自己的仓里，不进主库）
 
