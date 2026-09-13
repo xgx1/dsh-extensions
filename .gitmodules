@@ -46,3 +46,6 @@
 [submodule "skills/dietrichgebert-ponytail"]
 	path = skills/dietrichgebert-ponytail
 	url = https://github.com/xgx1/ponytail.git
+[submodule "vendor/dsh-evolve-modes"]
+	path = vendor/dsh-evolve-modes
+	url = https://github.com/xgx1/dsh-evolve-modes.git
