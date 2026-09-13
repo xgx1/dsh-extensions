@@ -36,7 +36,7 @@ pnpm test        # vitest（persist / boot）
 pnpm build       # tsdown → lib/index.js + lib/client.js
 ```
 
-构建依赖通过 `link:` 指向本机 harness 工作区 `/home/sx/projects/MyAI/master`（当前 0.1.5 客户端 SDK）：snapshot store 来自 `@deepseek-ai/dsh-client-store`（平台种子），client bundle 的 external 仅含 0.1.5 `PLATFORM_MODULES` 中的种子；harness 升级后若种子表变化，需同步 `tsdown.config.ts` 并重新构建。
+构建依赖通过 `link:` 指向本机 harness 工作区 `/home/sx/projects/MyAI/deepseek-harness`（当前 0.1.5 客户端 SDK）：snapshot store 来自 `@deepseek-ai/dsh-client-store`（平台种子），client bundle 的 external 仅含 0.1.5 `PLATFORM_MODULES` 中的种子；harness 升级后若种子表变化，需同步 `tsdown.config.ts` 并重新构建。
 
 ## 出处
 

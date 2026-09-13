@@ -45,9 +45,9 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/master/vendor/cordis",
-    "@deepseek-ai/dsh-llm": "link:/home/sx/projects/MyAI/master/packages/llm/llm",
-    "@deepseek-ai/dsh-tools": "link:/home/sx/projects/MyAI/master/packages/core/tools",
+    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-llm": "link:/home/sx/projects/MyAI/deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-tools": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/tools",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",

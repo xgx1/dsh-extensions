@@ -9,14 +9,14 @@ importers:
   .:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: link:/home/sx/projects/MyAI/master/vendor/cordis
-        version: link:../../../master/vendor/cordis
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis
+        version: link:../../../deepseek-harness/vendor/cordis
       '@deepseek-ai/dsh-api-session-controller':
-        specifier: link:/home/sx/projects/MyAI/master/packages/api/session-controller
-        version: link:../../../master/packages/api/session-controller
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/api/session-controller
+        version: link:../../../deepseek-harness/packages/api/session-controller
       '@deepseek-ai/dsh-session':
-        specifier: link:/home/sx/projects/MyAI/master/packages/core/session
-        version: link:../../../master/packages/core/session
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/core/session
+        version: link:../../../deepseek-harness/packages/core/session
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.1

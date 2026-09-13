@@ -32,9 +32,9 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/master/vendor/cordis",
-    "@deepseek-ai/dsh-api-session-controller": "link:/home/sx/projects/MyAI/master/packages/api/session-controller",
-    "@deepseek-ai/dsh-session": "link:/home/sx/projects/MyAI/master/packages/core/session",
+    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-api-session-controller": "link:/home/sx/projects/MyAI/deepseek-harness/packages/api/session-controller",
+    "@deepseek-ai/dsh-session": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/session",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",

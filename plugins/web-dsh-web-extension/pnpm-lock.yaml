@@ -9,29 +9,29 @@ importers:
   .:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: link:/home/sx/projects/MyAI/master/vendor/cordis
-        version: link:../master/vendor/cordis
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis
+        version: link:../../../deepseek-harness/vendor/cordis
       '@deepseek-ai/dsh-client-locale':
-        specifier: link:/home/sx/projects/MyAI/master/packages/client/locale
-        version: link:../master/packages/client/locale
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/client/locale
+        version: link:../../../deepseek-harness/packages/client/locale
       '@deepseek-ai/dsh-client-store':
-        specifier: link:/home/sx/projects/MyAI/master/packages/client/store
-        version: link:../master/packages/client/store
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/client/store
+        version: link:../../../deepseek-harness/packages/client/store
       '@deepseek-ai/dsh-client-ui-primitives':
-        specifier: link:/home/sx/projects/MyAI/master/packages/client/ui-primitives
-        version: link:../master/packages/client/ui-primitives
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-primitives
+        version: link:../../../deepseek-harness/packages/client/ui-primitives
       '@deepseek-ai/dsh-client-ui-renderer':
-        specifier: link:/home/sx/projects/MyAI/master/packages/client/ui-renderer
-        version: link:../master/packages/client/ui-renderer
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-renderer
+        version: link:../../../deepseek-harness/packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-settings':
-        specifier: link:/home/sx/projects/MyAI/master/packages/client/ui-settings
-        version: link:../master/packages/client/ui-settings
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-settings
+        version: link:../../../deepseek-harness/packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-slots':
-        specifier: link:/home/sx/projects/MyAI/master/packages/client/ui-slots
-        version: link:../master/packages/client/ui-slots
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-slots
+        version: link:../../../deepseek-harness/packages/client/ui-slots
       '@deepseek-ai/dsh-host-webserver':
-        specifier: link:/home/sx/projects/MyAI/master/packages/host/webserver
-        version: link:../master/packages/host/webserver
+        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/host/webserver
+        version: link:../../../deepseek-harness/packages/host/webserver
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.1
