@@ -4,34 +4,47 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 ## 结构
 
-- `skills/<名字>/` —— DSH 技能**源**；由 `install-skill.sh` 软链到 `~/.dsh/skills/<名字>`
-- `plugins/<名字>/` —— DSH 插件（独立 npm 包，`dsh plugin --profile web add link:<目录>` 安装）
-- `vendor/<名字>/` —— 第三方上游克隆（各自带 `.git` 与远端，被本仓 `.gitignore` 忽略；改它们要在各自目录里提交）
+- `plugins/<名字>/` —— **自研插件**（独立 npm 包，`dsh plugin --profile web add link:<目录>` 安装），受本仓版本控制。
+- `skills/<上游仓库名>/<技能>/` —— **技能分组仓**：一个上游仓库一组，各自是独立 git 仓、登记为本仓的 submodule。有上游的是 `xgx1` 下的公开 fork，无上游的是自建仓。分组理由与 fork 策略见 `../docs/adr/0006`。
+- `vendor/<名字>/` —— **第三方上游克隆**（生产 `link:` 目标），同样是 submodule，远端指各自上游。
+
+三处都**不再被 `.gitignore` 忽略**：`skills/` 与 `vendor/` 由 `.gitmodules` 记录，本仓只保存指向各自提交的指针（见 `../docs/adr/0005`）。改子模块里的内容要**在各自目录里**提交、推送，再回本仓更新指针。
 
 ## 技能安装：软链，不是副本
 
 ```sh
-./install-skill.sh            # 扫描两个技能源，软链到 ~/.dsh/skills/
+./install-skill.sh            # 扫描三个技能源，软链到 ~/.dsh/skills/
 ./install-skill.sh --dry-run  # 只看会做什么
+./install-skill.sh --list     # 只列出受管技能及来源
 ./install-skill.sh --force    # 允许覆盖已存在的真实目录（先备份到 ~/.dsh/skill-backups/）
 ```
 
-技能源有两处：本仓 `skills/`，以及 `~/projects/update-app/skills/`（`update-all` 技能随它的 CLI 走）。
+**技能源有三处**：
+
+1. 本仓 `skills/<分组>/<技能>/`（两级）
+2. `~/projects/update-app/skills/`（`update-all` 技能随它的 CLI 走）
+3. `~/projects/<项目>/.dsh/skills/`（**项目专用技能**放各项目自己的仓里，不进主库）
 
 **改动无需复制**：`~/.dsh/skills/<名字>` 是指向源目录的软链，改完即生效、提交即版本化。
 这个设计是为了消灭旧「托管副本」模式下的漂移——曾经运行时那份还在教一个已被删除的仓库。
 
+> 自检：`./install-skill.sh --dry-run` 输出里的「新建 N」应为 0，否则说明有技能没被纳入受管源。
+
 ## 已有扩展
 
-### 技能
+### 技能（按来源分组）
 
-- [`dsh-extension-dev`](skills/dsh-extension-dev/SKILL.md) —— DSH 扩展开发元技能：先搜索复用 → 调 `cordis-plugin-development` 技能 → 极简（一功能一插件）→ 传 GitHub。
-  - 形态分类与证据优先思路参考 [w2112515/dsh-plugin-development](https://github.com/w2112515/dsh-plugin-development)
-  - 基本原理参考官方 [extension-cookbook](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/extension-cookbook.md)
-- 其余 6 个来自 **JetBrains [rider-skills](https://github.com/JetBrains/rider-skills)** 及本机适配：
-  `debugging-code` / `finding-tests` / `refactoring-code` 取上游原样；
-  `unreal-code-authoring` / `unreal-live-debugging` / `unreal-test-authoring` 由上游 `ue-*` 改名并适配本机。
-  上游克隆已于 2026-09-13 删除（当时无运行时消费者）——需要对照上游时重新 clone 即可。
+| 分组 | 来源 | 技能数 |
+| --- | --- | --- |
+| `self-dsh` / `self-ue` / `self-ops` | 本机自写（无上游） | 6 / 32 / 14 |
+| `dotnet-skills` | [dotnet/skills](https://github.com/dotnet/skills) | 98 |
+| `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 33 |
+| `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 31 |
+| `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 21 |
+| `rider-skills` | [JetBrains/rider-skills](https://github.com/JetBrains/rider-skills) | 6 |
+| 其余 9 组 | obsidian / epicgames / unrealxu / clawic / qmd / sipherxyz 等 | 各 1–4 |
+
+**关于上游与本地版本**：分组仓里放的是**本机实际使用的版本**（普遍改过名、翻过中文、做过本机适配），upstream 远端只作祖先与对照——**不要拿上游覆盖本地**（`obra-superpowers` 那组尤其如此：本地是对上游方法论的中文再创作）。判断一个技能是否自研，看 `agents/openai.yaml` 与残存的 `license:`/`compatibility:` 键，**不要**看 `author: Sx` 或中文 frontmatter（那是本地化层批量盖的章）。
 
 ### 插件
 
@@ -39,4 +52,10 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 - [`dsh-sidebar-taskbar`](plugins/dsh-sidebar-taskbar/README.md) —— 侧边栏会话任务栏：工作区上方显示运行结束（绿）/运行中（红）/等待回复（琥珀）会话，点击跳转；折叠自动隐藏。数据复用官方 sessions 快照，零官方源码修改。
 - [`dsh-task-manager`](plugins/dsh-task-manager/README.md) —— 任务管理器：侧边栏标题下方「任务管理 / Task Commander」按钮，点击把中间主区域（AI 输入输出面板）**整区切换**为任务面板（官方 `conversation.view` 视图环，非右侧浮层），面板左上角「创建新的任务」按钮；header 视图标签一键切回对话。纯 profile-bundle 覆盖层，零官方源码修改。
 
-> 这里只写**用途与来源**；目录清单以 `ls skills/ plugins/ vendor/` 为准，不在此逐目录罗列（清单会漂，`ls` 不会）。
+### 元技能
+
+- [`dsh-extension-dev`](skills/self-dsh/dsh-extension-dev/SKILL.md) —— DSH 扩展开发元技能：先搜索复用 → 调 `cordis-plugin-development` 技能 → 极简（一功能一插件）→ 传 GitHub。
+  - 形态分类与证据优先思路参考 [w2112515/dsh-plugin-development](https://github.com/w2112515/dsh-plugin-development)
+  - 基本原理参考官方 [extension-cookbook](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/extension-cookbook.md)
+
+> 这里只写**用途与来源**；分组清单以 `ls skills/` 与各组 README 为准，不在此逐技能罗列（清单会漂，`ls` 不会）。
