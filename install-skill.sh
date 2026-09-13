@@ -3,7 +3,9 @@
 # install-skill.sh —— 把「受管技能源」软链进运行时技能目录 ~/.dsh/skills/
 #
 # 技能源（三处，全部是权威来源，运行时只放软链）：
-#   1. <dsh-extensions>/skills/<分组>/<技能>/     ← 按上游仓库分组，两组层级
+#   1. <dsh-extensions>/skills/<分组>/**/SKILL.md   ← 按上游仓库分组；技能目录 = 含 SKILL.md 的目录
+#      （上游把技能放在不同层级：skills/<名>/、skills/<分类>/<名>/、.agents/skills/<名>/、
+#        plugins/<插件>/skills/<名>/……所以按 SKILL.md 递归发现，而不是写死两级）
 #   2. <update-app>/skills/<技能>/                ← update-all 随它的 CLI 走
 #   3. ~/projects/<项目>/.dsh/skills/<技能>/      ← 项目专用技能（各项目自己的仓）
 #
@@ -49,11 +51,11 @@ run() { if [ "$dry_run" -eq 1 ]; then echo "  [dry-run] $*"; else "$@"; fi; }
 
 declare -a names=() paths=()
 
-add_skill() {  # $1 = 技能目录
-  local dir="$1" name
+add_skill() {  # $1 = 技能目录；名字优先取 frontmatter 的 name:，否则用目录名
+  local dir="${1%/}" name
   [ -d "$dir" ] || return 0
-  [ -f "${dir%/}/SKILL.md" ] || return 0
-  name="$(basename "${dir%/}")"
+  [ -f "$dir/SKILL.md" ] || return 0
+  name="$(skill_name "$dir")"
   local i
   for i in "${!names[@]}"; do
     if [ "${names[$i]}" = "$name" ]; then
@@ -61,15 +63,30 @@ add_skill() {  # $1 = 技能目录
       return 0
     fi
   done
-  names+=("$name"); paths+=("${dir%/}")
+  names+=("$name"); paths+=("$dir")
 }
 
-# 源 1：dsh-extensions/skills/<分组>/<技能>
+# 取技能名：frontmatter 里的 name: 优先（本地改写的技能名不随上游目录改名而变）
+skill_name() {
+  local n
+  n="$(sed -n '1{/^---[[:space:]]*$/!q};1,/^---[[:space:]]*$/p' "$1/SKILL.md" 2>/dev/null \
+       | sed -n 's/^name:[[:space:]]*//p' | head -1 | tr -d '\r' \
+       | sed 's/^["'"'"']//; s/["'"'"']$//; s/[[:space:]]*$//')"
+  if [ -n "$n" ]; then printf '%s' "$n"; else basename "$1"; fi
+}
+
+# 源 1：dsh-extensions/skills/<分组>/**/SKILL.md
+#   排除测试/示例噪音（上游仓里带 fixtures、sample 之类的 SKILL.md 不是真技能）；
+#   同一技能被多份副本携带时（上游常同时给多个 harness 各放一份）取**路径最浅**的那份，
+#   保证 canonical 目录（skills/、.agents/skills/）优先于 .openclaw/skills/ 之类的分发副本。
 if [ -d "$DSH_EXT/skills" ]; then
-  for grp in "$DSH_EXT"/skills/*/; do
-    [ -d "$grp" ] || continue
-    for sk in "$grp"*/; do add_skill "$sk"; done
-  done
+  while IFS= read -r f; do add_skill "$(dirname "$f")"; done < <(
+    find "$DSH_EXT/skills" -mindepth 2 -maxdepth 6 -type f -name SKILL.md \
+      -not -path '*/.git/*' -not -path '*/node_modules/*' \
+      -not -path '*/tests/*' -not -path '*/test/*' -not -path '*/fixtures/*' \
+      -not -path '*/examples/*' -not -path '*/sample*/*' \
+      -printf '%d\t%p\n' | sort -k1,1n -k2,2 | cut -f2-
+  )
 fi
 # 源 2：update-app/skills/<技能>
 [ -d "$UPDATE_APP/skills" ] && for sk in "$UPDATE_APP"/skills/*/; do add_skill "$sk"; done
