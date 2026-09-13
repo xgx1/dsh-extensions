@@ -10,9 +10,6 @@
 [submodule "skills/epicgames-ue-skills"]
 	path = skills/epicgames-ue-skills
 	url = https://github.com/xgx1/epicgames-ue-skills.git
-[submodule "skills/jykim-claude-obsidian-skills"]
-	path = skills/jykim-claude-obsidian-skills
-	url = https://github.com/xgx1/jykim-claude-obsidian-skills.git
 [submodule "skills/kepano-obsidian-skills"]
 	path = skills/kepano-obsidian-skills
 	url = https://github.com/xgx1/kepano-obsidian-skills.git
@@ -55,3 +52,6 @@
 [submodule "vendor/dsh-toolkit"]
 	path = vendor/dsh-toolkit
 	url = https://github.com/omdsh-dev/dsh-toolkit.git
+[submodule "skills/dietrichgebert-ponytail"]
+	path = skills/dietrichgebert-ponytail
+	url = https://github.com/xgx1/ponytail.git

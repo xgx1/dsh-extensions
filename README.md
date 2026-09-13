@@ -36,13 +36,14 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 | 分组 | 来源 | 技能数 |
 | --- | --- | --- |
-| `self-dsh` / `self-ue` / `self-ops` | 本机自写（无上游） | 6 / 26 / 14 |
+| `self-dsh` / `self-ue` / `self-ops` | 本机自写（无上游） | 5 / 26 / 7 |
 | `dotnet-skills` | [dotnet/skills](https://github.com/dotnet/skills) | 98 |
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 33 |
 | `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 30 |
 | `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 21 |
+| `dietrichgebert-ponytail` | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | 6 |
 | `rider-skills` | [JetBrains/rider-skills](https://github.com/JetBrains/rider-skills) | 6 |
-| 其余 8 组 | obsidian / epicgames / unrealxu / clawic / qmd / sipherxyz 等 | 各 1–4 |
+| 其余 7 组 | obsidian / epicgames / unrealxu / clawic / qmd / sipherxyz 等 | 各 1–4 |
 
 **关于上游与本地版本**：分组仓里放的是**本机实际使用的版本**（普遍改过名、翻过中文、做过本机适配），upstream 远端只作祖先与对照——**不要拿上游覆盖本地**（`obra-superpowers` 那组尤其如此：本地是对上游方法论的中文再创作）。判断一个技能是否自研，看 `agents/openai.yaml` 与残存的 `license:`/`compatibility:` 键，**不要**看 `author: Sx` 或中文 frontmatter（那是本地化层批量盖的章）。
 
