@@ -1,6 +1,3 @@
-[submodule "skills/benoror-obsidianos-work"]
-	path = skills/benoror-obsidianos-work
-	url = https://github.com/xgx1/benoror-obsidianos-work.git
 [submodule "skills/clawic-marketplace"]
 	path = skills/clawic-marketplace
 	url = https://github.com/xgx1/clawic-marketplace.git
