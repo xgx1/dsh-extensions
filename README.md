@@ -37,15 +37,17 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 | 分组 | 来源 | 技能数 |
 | --- | --- | --- |
-| `dotnet-skills` | [dotnet/skills](https://github.com/dotnet/skills) | 110 |
+| `dotnet-skills` | [dotnet/skills](https://github.com/dotnet/skills) | 104 |
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 37 |
-| `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 34 |
-| `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 33 |
-| `self-ue` / `self-ops` / `self-dsh` | 本机自写（无上游） | 26 / 7 / 6 |
+| `self-ue` / `self-dsh` / `self-ops` | **本机自建**（无上游） | 32 / 32 / 7 |
+| `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 27 |
 | `sipherxyz-universal-ue-skills` | [sipherxyz/universal-ue-skills](https://github.com/sipherxyz/universal-ue-skills) | 15 |
+| `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 14 |
 | `unrealxu-ue5-skills` | [UnrealXu/UnrealEngine5-Skills](https://github.com/UnrealXu/UnrealEngine5-Skills) | 11 |
 | `rider-skills` / `dietrichgebert-ponytail` | JetBrains / DietrichGebert 的 fork | 各 6 |
 | `epicgames-ue-skills` / `clawic-marketplace` | EpicGames 官方 / clawic | 各 3 |
+
+**归属规则**：**上游没有的技能不进 fork，放自建仓**（`self-ue` = UE 项目实践，`self-dsh` = 通用开发流程 + .NET/MCP 工具 + DSH，`self-ops` = 本机运维 CLI）。这样每个 fork 都干净——**文件数 = 上游 + 1**（那 1 个是 `README.dsh-local.md`），`git diff upstream/<分支>` 里只剩「本机改写了哪些文件的内容」。
 
 （技能名以下载进 `~/.dsh/skills/` 的为准；数字会随安装器发现结果变化，权威值是 `./install-skill.sh --list`。）
 
