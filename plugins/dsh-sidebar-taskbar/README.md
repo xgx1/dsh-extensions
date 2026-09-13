@@ -12,8 +12,8 @@ DSH Web GUI 侧边栏会话任务栏（纯 profile-bundle 覆盖层，**零官�
 ## 安装
 
 ```sh
-dsh plugin --profile web add link:C:\Users\Admin\Project\Other\dsh-sidebar-taskbar
-pm2 restart dsh-web
+dsh plugin --profile web add link:/home/sx/projects/MyAI/dsh-extensions/plugins/dsh-sidebar-taskbar
+systemctl --user restart dsh-web
 ```
 
 ## 工作原理

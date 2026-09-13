@@ -11,8 +11,8 @@ DSH Web GUI 布局扩展（纯 profile-bundle 覆盖层，**零官方源码修�
 
 ```sh
 # 在 web profile 注册本包（本地 link）
-dsh plugin --profile web add link:C:\Users\Admin\Project\Other\web-dsh-web-extension
-pm2 restart dsh-web
+dsh plugin --profile web add link:/home/sx/projects/MyAI/dsh-extensions/plugins/web-dsh-web-extension
+systemctl --user restart dsh-web
 ```
 
 或手工：`profiles/web/package.json` 的 dependencies + `dsh.profile.bundles` 加入 `web-dsh-web-extension`，`cordis.patch.yml` 提供插件行。
