@@ -43,9 +43,6 @@
 [submodule "skills/tobi-qmd"]
 	path = skills/tobi-qmd
 	url = https://github.com/xgx1/tobi-qmd.git
-[submodule "skills/unknown-opencode-pack"]
-	path = skills/unknown-opencode-pack
-	url = https://github.com/xgx1/unknown-opencode-pack.git
 [submodule "skills/unrealxu-ue5-skills"]
 	path = skills/unrealxu-ue5-skills
 	url = https://github.com/xgx1/unrealxu-ue5-skills.git
