@@ -36,10 +36,10 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 | 分组 | 来源 | 技能数 |
 | --- | --- | --- |
-| `self-dsh` / `self-ue` / `self-ops` | 本机自写（无上游） | 6 / 35 / 14 |
+| `self-dsh` / `self-ue` / `self-ops` | 本机自写（无上游） | 6 / 26 / 14 |
 | `dotnet-skills` | [dotnet/skills](https://github.com/dotnet/skills) | 98 |
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 33 |
-| `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 31 |
+| `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 30 |
 | `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 21 |
 | `rider-skills` | [JetBrains/rider-skills](https://github.com/JetBrains/rider-skills) | 6 |
 | 其余 8 组 | obsidian / epicgames / unrealxu / clawic / qmd / sipherxyz 等 | 各 1–4 |
