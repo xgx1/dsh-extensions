@@ -1,1 +1,6 @@
 node_modules/
+
+# 第三方上游克隆（2026-09-13 由工作区根 _dsh_plugins_src/、rider-skills/ 迁入）。
+# 它们各自带 .git 与上游远端，不是本仓库的内容：ignore 掉可避免 `git add -A`
+# 把它们记成 gitlink（子模块引用）却不含内容。
+vendor/
