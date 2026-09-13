@@ -35,7 +35,6 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-sidebar"
@@ -46,9 +45,9 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.7",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
+    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/master/vendor/cordis",
+    "@deepseek-ai/dsh-llm": "link:/home/sx/projects/MyAI/master/packages/llm/llm",
+    "@deepseek-ai/dsh-tools": "link:/home/sx/projects/MyAI/master/packages/core/tools",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",

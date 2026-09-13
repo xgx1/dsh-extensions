@@ -5,7 +5,9 @@
  * pending-interaction source (`pendingInteractions`), so this package holds no
  * business state of its own.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the sessions service merge (ctx.sessions).
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import { mountTaskBar, type PendingSource } from './mount.tsx'
 
 /** Required services: the sessions list + navigation, and pending-interaction state. */
@@ -16,8 +18,8 @@ export const inject = ['sessions', 'uiSession']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  // `uiSession` is a current-harness client service; the pinned runtime types predate it,
-  // so the pending-interaction source is read structurally (same shape as sessions.list).
+  // `uiSession` is a harness client service with no published type merge, so the
+  // pending-interaction source is read structurally (same shape as sessions.list).
   const uiSession = (ctx as unknown as { uiSession: { pendingInteractions: PendingSource } }).uiSession
   ctx.effect(() => mountTaskBar({
     list: ctx.sessions.list,

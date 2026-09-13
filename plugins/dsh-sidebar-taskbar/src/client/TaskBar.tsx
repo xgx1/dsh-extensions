@@ -5,7 +5,8 @@
  * narrow rail.
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks, type TaskRow } from './tasks.ts'
 
 /** Read-only observable source of one snapshot (the shape `ctx.sessions.list` and `uiSession.pendingInteractions` share). */

@@ -4,7 +4,8 @@
  * or waiting for a reply (amber). Waiting outranks the green done state —
  * the user owes an answer and should see it first in its own group.
  */
-import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** One task-bar row. */
 export interface TaskRow {

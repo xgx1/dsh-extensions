@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks } from '../src/client/tasks.ts'
 
 function summary(overrides: Omit<Partial<SessionSummary>, 'id'> & { id: string }): SessionSummary {
