@@ -1,0 +1,60 @@
+[submodule "skills/benoror-obsidianos-work"]
+	path = skills/benoror-obsidianos-work
+	url = https://github.com/xgx1/benoror-obsidianos-work.git
+[submodule "skills/clawic-marketplace"]
+	path = skills/clawic-marketplace
+	url = https://github.com/xgx1/clawic-marketplace.git
+[submodule "skills/dotnet-skills"]
+	path = skills/dotnet-skills
+	url = https://github.com/xgx1/dotnet-skills.git
+[submodule "skills/epicgames-ue-skills"]
+	path = skills/epicgames-ue-skills
+	url = https://github.com/xgx1/epicgames-ue-skills.git
+[submodule "skills/jykim-claude-obsidian-skills"]
+	path = skills/jykim-claude-obsidian-skills
+	url = https://github.com/xgx1/jykim-claude-obsidian-skills.git
+[submodule "skills/kepano-obsidian-skills"]
+	path = skills/kepano-obsidian-skills
+	url = https://github.com/xgx1/kepano-obsidian-skills.git
+[submodule "skills/mattpocock-skills"]
+	path = skills/mattpocock-skills
+	url = https://github.com/xgx1/mattpocock-skills.git
+[submodule "skills/obra-superpowers"]
+	path = skills/obra-superpowers
+	url = https://github.com/xgx1/obra-superpowers.git
+[submodule "skills/quodsoler-unreal-engine-skills"]
+	path = skills/quodsoler-unreal-engine-skills
+	url = https://github.com/xgx1/quodsoler-unreal-engine-skills.git
+[submodule "skills/rider-skills"]
+	path = skills/rider-skills
+	url = https://github.com/xgx1/rider-skills.git
+[submodule "skills/self-dsh"]
+	path = skills/self-dsh
+	url = https://github.com/xgx1/self-dsh.git
+[submodule "skills/self-ops"]
+	path = skills/self-ops
+	url = https://github.com/xgx1/self-ops.git
+[submodule "skills/self-ue"]
+	path = skills/self-ue
+	url = https://github.com/xgx1/self-ue.git
+[submodule "skills/sipherxyz-universal-ue-skills"]
+	path = skills/sipherxyz-universal-ue-skills
+	url = https://github.com/xgx1/sipherxyz-universal-ue-skills.git
+[submodule "skills/tobi-qmd"]
+	path = skills/tobi-qmd
+	url = https://github.com/xgx1/tobi-qmd.git
+[submodule "skills/unknown-opencode-pack"]
+	path = skills/unknown-opencode-pack
+	url = https://github.com/xgx1/unknown-opencode-pack.git
+[submodule "skills/unrealxu-ue5-skills"]
+	path = skills/unrealxu-ue5-skills
+	url = https://github.com/xgx1/unrealxu-ue5-skills.git
+[submodule "vendor/dsh-drop-to-path"]
+	path = vendor/dsh-drop-to-path
+	url = https://github.com/loudMore/dsh-drop-to-path.git
+[submodule "vendor/dsh-genui"]
+	path = vendor/dsh-genui
+	url = https://github.com/omdsh-dev/dsh-genui.git
+[submodule "vendor/dsh-toolkit"]
+	path = vendor/dsh-toolkit
+	url = https://github.com/omdsh-dev/dsh-toolkit.git

@@ -1,12 +1,8 @@
 node_modules/
 
-# 第三方上游克隆（2026-09-13 由工作区根 _dsh_plugins_src/ 迁入）。
-# 各自带 .git 与上游远端，不是本仓库的内容。
-# ⚠ 临时状态：它们将改为 git submodule（见 MyAI docs/adr/0005），届时本条目删除、
-# 改由 .gitmodules 记录。在子模块登记完成前先 ignore，避免 `git add -A`
-# 把它们记成不含内容的 gitlink（子模块引用）。
-vendor/
-
-# 技能分组仓（2026-09-13 建立）：每个上游仓库一组，各自是独立 git 仓。
-# ⚠ 同上，临时忽略，待 submodule 登记后删除本条。
-skills/
+# vendor/ 与 skills/ 下的内容**不再是忽略项**——它们已登记为 git submodule，
+# 由 .gitmodules 记录（见 MyAI docs/adr/0005）。本仓库只保存指向各自提交的指针，
+# 内容在子仓里提交、推送。
+#
+# 历史：vendor/ 曾用 ignore 规避「`git add -A` 把嵌套仓记成不含内容的 gitlink」，
+# 2026-09-13 改用显式 submodule 正面解决同一问题。
