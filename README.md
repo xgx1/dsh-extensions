@@ -39,9 +39,9 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 | --- | --- | --- |
 | `dotnet-skills` | [dotnet/skills](https://github.com/dotnet/skills) | 110 |
 | `mattpocock-skills` | [mattpocock/skills](https://github.com/mattpocock/skills) | 37 |
-| `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 35 |
+| `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 34 |
 | `quodsoler-unreal-engine-skills` | [quodsoler/unreal-engine-skills](https://github.com/quodsoler/unreal-engine-skills) | 33 |
-| `self-ue` / `self-ops` / `self-dsh` | 本机自写（无上游） | 26 / 7 / 5 |
+| `self-ue` / `self-ops` / `self-dsh` | 本机自写（无上游） | 26 / 7 / 6 |
 | `sipherxyz-universal-ue-skills` | [sipherxyz/universal-ue-skills](https://github.com/sipherxyz/universal-ue-skills) | 15 |
 | `unrealxu-ue5-skills` | [UnrealXu/UnrealEngine5-Skills](https://github.com/UnrealXu/UnrealEngine5-Skills) | 11 |
 | `rider-skills` / `dietrichgebert-ponytail` | JetBrains / DietrichGebert 的 fork | 各 6 |
