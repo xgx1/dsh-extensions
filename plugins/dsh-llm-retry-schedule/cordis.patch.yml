@@ -1,0 +1,34 @@
+# dsh-llm-retry-schedule bundle patch: inserts one row into whatever profile
+# selects this bundle.
+#
+# The row registers itself on the `agent/request-error` waterfall with
+# `prepend: true`, so it owns transient model-request failures before the
+# shipped `llm-retry` row does; that row stays mounted and keeps every failure
+# this one declines (a code outside the effective set, an exhausted budget, or
+# a provider route configured with `mode: always`). No shipped row is patched.
+#
+# Wait by retry number, identical to the plugin's own defaults:
+#   retries  1–4  →  5 s
+#   retries  5–19 → 10 s
+#   retries 20+   → 60 s
+#
+# Override any of it from the profile's own cordis.patch.yml (the user layer is
+# applied after every bundle layer and wins):
+#   - id: llm-retry-schedule
+#     config:
+#       maxRetries: 1000
+#       schedule:
+#         - fromRetry: 1
+#           delayMs: 5000
+- insert:
+    - id: llm-retry-schedule
+      name: 'dsh-llm-retry-schedule'
+      config:
+        maxRetries: 1000
+        schedule:
+          - fromRetry: 1
+            delayMs: 5000
+          - fromRetry: 5
+            delayMs: 10000
+          - fromRetry: 20
+            delayMs: 60000

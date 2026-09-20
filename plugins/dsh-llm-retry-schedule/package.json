@@ -1,0 +1,48 @@
+{
+  "name": "dsh-llm-retry-schedule",
+  "version": "0.1.0",
+  "description": "DSH host plugin: a configurable tiered retry budget (count + per-retry waits) for model-request failures, prepended over the shipped llm-retry policy — pure profile-bundle overlay, zero dsh source changes",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-agent": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/agent",
+    "@deepseek-ai/dsh-agent-loop": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/agent-loop",
+    "@deepseek-ai/dsh-llm": "link:/home/sx/projects/MyAI/deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-llm-retry": "link:/home/sx/projects/MyAI/deepseek-harness/packages/llm/llm-retry",
+    "@deepseek-ai/dsh-session": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/session",
+    "@deepseek-ai/dsh-session-projection": "link:/home/sx/projects/MyAI/deepseek-harness/packages/session/session-projection",
+    "@deepseek-ai/dsh-system-prompt": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/tools",
+    "@types/node": "^22.20.0",
+    "tsdown": "0.22.2",
+    "typescript": "~5.7.2",
+    "vitest": "^4.1.8"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test": "vitest run"
+  }
+}
