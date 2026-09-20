@@ -1,10 +1,12 @@
 /**
- * Pure task classification for the sidebar task bar. One row per session
- * that currently signals activity: finished-running (green), running (red),
- * or waiting for a reply (amber). Waiting outranks the green done state —
- * the user owes an answer and should see it first in its own group.
+ * Pure task classification for the sidebar task bar. One row per Session that
+ * currently signals activity, from the official unified UI status source:
+ * waiting for a reply (amber), running (red), or stopped outside the main view
+ * without acknowledgement (green). Waiting outranks the other two — the user
+ * owes an answer and should see it first in its own group.
  */
-import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** One task-bar row. */
@@ -17,7 +19,7 @@ export interface TaskRow {
 
 /** The three task-bar groups, in display order. */
 export interface TaskGroups {
-  /** Finished running while not yet opened — green, newest first. */
+  /** Stopped outside the main view, not yet acknowledged — green, newest first. */
   done: TaskRow[]
   /** Currently running — red, oldest first. */
   running: TaskRow[]
@@ -25,49 +27,43 @@ export interface TaskGroups {
   waiting: TaskRow[]
 }
 
-/** True when the summary carries any signal the task bar should show. */
-function isActive(summary: SessionSummary, pending: boolean): boolean {
-  return pending || summary.running || summary.completed === true
-}
-
-/** Sort one group: finished newest-first, live/waiting oldest-first. */
-function byUpdatedAt(rows: TaskRow[], summaries: Map<string, SessionSummary>, newestFirst: boolean): TaskRow[] {
-  return [...rows].sort((left, right) => {
-    const a = summaries.get(left.id)?.updatedAt ?? 0
-    const b = summaries.get(right.id)?.updatedAt ?? 0
-    return newestFirst ? b - a : a - b
-  })
-}
-
 /**
- * Classify one session list snapshot plus the pending-interaction snapshot into
+ * Classify the Session list snapshot and the unified UI status snapshot into
  * the three task-bar groups.
- * @param state - the sessions list snapshot.
- * @param pending - Sessions currently owning a pending user interaction
- *   (`ctx.uiSession.pendingInteractions`); a Set or the service's Map both work.
+ * @param list - the sessions list snapshot (titles and update order).
+ * @param status - the `uiSession.sessionStatus` snapshot: per-Session running,
+ *   pending-interaction, and completion-acknowledgement facts.
  * @returns the three groups (each empty when nothing signals).
  */
 export function classifyTasks(
-  state: SessionListState,
-  pending: ReadonlySet<SessionId> | ReadonlyMap<SessionId, unknown> = new Map(),
+  list: SessionListState,
+  status: SessionStatusSnapshot,
 ): TaskGroups {
   const done: TaskRow[] = []
   const running: TaskRow[] = []
   const waiting: TaskRow[] = []
-  const summaries = new Map<string, SessionSummary>()
-  for (const id of state.ids) {
-    const summary = state.byId[id]
-    const isPending = pending.has(id)
-    if (summary === undefined || !isActive(summary, isPending)) continue
-    summaries.set(id, summary)
+  for (const id of list.ids) {
+    const summary = list.byId[id]
+    const facts = status.get(id)
+    if (summary === undefined || facts === undefined) continue
     const row: TaskRow = { id, title: summary.displayTitle }
-    if (isPending) waiting.push(row)
-    else if (summary.running) running.push(row)
-    else done.push(row)
+    if (facts.pendingInteraction !== undefined) {
+      waiting.push(row)
+    } else if (facts.running === true) {
+      running.push(row)
+    } else if (facts.completionUnread) {
+      done.push(row)
+    }
   }
+  const byUpdatedAt = (rows: TaskRow[], newestFirst: boolean): TaskRow[] =>
+    [...rows].sort((left, right) => {
+      const a = list.byId[left.id]?.updatedAt ?? 0
+      const b = list.byId[right.id]?.updatedAt ?? 0
+      return newestFirst ? b - a : a - b
+    })
   return {
-    done: byUpdatedAt(done, summaries, true),
-    running: byUpdatedAt(running, summaries, false),
-    waiting: byUpdatedAt(waiting, summaries, false),
+    done: byUpdatedAt(done, true),
+    running: byUpdatedAt(running, false),
+    waiting: byUpdatedAt(waiting, false),
   }
 }

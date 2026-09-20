@@ -6,24 +6,22 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks, type TaskRow } from './tasks.ts'
 
-/** Read-only observable source of one snapshot (the shape `ctx.sessions.list` and `uiSession.pendingInteractions` share). */
-export interface PendingSource {
-  getSnapshot(): ReadonlyMap<SessionId, unknown>
+/** Read-only observable source of one snapshot. */
+export interface SnapshotSource<Value> {
+  getSnapshot(): Value
   subscribe(callback: () => void): () => void
 }
 
-/** Sessions face the bar needs (structural, duck-typed against ctx.sessions). */
+/** Sessions face the bar needs (structural, duck-typed against ctx.sessions and uiSession). */
 export interface TaskBarSessions {
-  list: {
-    getSnapshot(): SessionListState
-    subscribe(callback: () => void): () => void
-  }
+  list: SnapshotSource<SessionListState>
+  /** Unified UI status snapshot from the `uiSession` client service. */
+  status: SnapshotSource<SessionStatusSnapshot>
   open(id: SessionId): void
-  /** Pending user interactions per Session, from the `uiSession` client service. */
-  pending: PendingSource
 }
 
 /** Sidebar column width below which the rail is considered collapsed. */
@@ -136,11 +134,11 @@ export function TaskBar({ sessions }: { sessions: TaskBarSessions }) {
     (callback) => sessions.list.subscribe(callback),
     () => sessions.list.getSnapshot(),
   )
-  const pending = useSyncExternalStore(
-    (callback) => sessions.pending.subscribe(callback),
-    () => sessions.pending.getSnapshot(),
+  const status = useSyncExternalStore(
+    (callback) => sessions.status.subscribe(callback),
+    () => sessions.status.getSnapshot(),
   )
-  const groups = classifyTasks(list, pending)
+  const groups = classifyTasks(list, status)
   const total = groups.done.length + groups.running.length + groups.waiting.length
   const container = useRef<HTMLDivElement>(null)
   const [collapsed, setCollapsed] = useState(false)

@@ -1,21 +1,12 @@
 /**
- * tsdown config for web-dsh-web-extension: the node half (lib/index.js, Host
- * loader entry) plus the browser client bundle (lib/client.js, loaded through
- * the shell's __ModuleLoader__ module table). Mirrors the harness client
- * bundle contract: platform modules stay external (the loader table answers
- * the require), everything else inlines.
+ * tsdown config for web-dsh-web-extension: an empty node half (bundle row
+ * entry) plus an empty browser client bundle. Neither half contributes
+ * behavior — the layout preference moved into dsh itself. The build exists so
+ * the profile roster row keeps both loader entries.
  */
 import { defineConfig } from 'tsdown'
 
 const ID = 'web-dsh-web-extension'
-
-/** Module specifiers the web shell shares into its frozen module table (0.1.5 platform seeds). */
-const PLATFORM_MODULES = [
-  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-]
 
 export default defineConfig([
   {
@@ -39,12 +30,8 @@ export default defineConfig([
     dts: false,
     sourcemap: true,
     clean: false,
-    external: PLATFORM_MODULES,
-    noExternal: (id) => (PLATFORM_MODULES.includes(id) ? undefined : true),
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-      'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
     },
     outputOptions: {
       entryFileNames: 'client.js',

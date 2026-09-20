@@ -1,17 +1,16 @@
 {
   "name": "dsh-sidebar-taskbar",
-  "version": "0.1.0",
-  "description": "DSH web GUI sidebar task bar: finished-running (green), running (red) and waiting-for-reply (amber) sessions listed above the workspace browser, click to jump — a pure profile-bundle overlay, zero dsh source changes",
+  "version": "0.2.0",
+  "description": "DSH web GUI sidebar task bar: finished (green), running (red) and waiting-for-reply (amber) sessions listed above the workspace browser, click to jump — a pure profile-bundle overlay, zero dsh source changes",
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./client": {
-      "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
@@ -23,7 +22,9 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-api-session-controller"
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "platform": "web"
     }
@@ -34,6 +35,8 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis",
     "@deepseek-ai/dsh-api-session-controller": "link:/home/sx/projects/MyAI/deepseek-harness/packages/api/session-controller",
+    "@deepseek-ai/dsh-client-ui-session": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-session",
+    "@deepseek-ai/dsh-client-ui-workspace": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-workspace",
     "@deepseek-ai/dsh-session": "link:/home/sx/projects/MyAI/deepseek-harness/packages/core/session",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",

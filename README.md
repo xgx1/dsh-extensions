@@ -55,8 +55,8 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 ### 插件
 
-- [`web-dsh-web-extension`](plugins/web-dsh-web-extension/README.md) —— DSH Web GUI 布局扩展：对话内容铺满、输入框左对齐、设置面板「对话布局」行。纯 profile-bundle 覆盖层（官方 `webServer.tapIndex` seam + `settings.general.item` 设置行），零官方源码修改。
-- [`dsh-sidebar-taskbar`](plugins/dsh-sidebar-taskbar/README.md) —— 侧边栏会话任务栏：工作区上方显示运行结束（绿）/运行中（红）/等待回复（琥珀）会话，点击跳转；折叠自动隐藏。数据复用官方 sessions 快照，零官方源码修改。
+- [`web-dsh-web-extension`](plugins/web-dsh-web-extension/README.md) —— **空插件（预留 roster 行）**：原本的「对话布局」功能（对话内容铺满/标准、输入框左对齐/居中）已内置进 DSH 本体，本包保留 profile 行、零行为，既有安装无需改 profile。
+- [`dsh-sidebar-taskbar`](plugins/dsh-sidebar-taskbar/README.md) —— 侧边栏会话任务栏：工作区上方显示运行结束（绿）/运行中（红）/等待回复（琥珀）会话，点击跳转；折叠自动隐藏。数据复用官方 `sessions.list` + `uiSession.sessionStatus`，零官方源码修改。
 - [`dsh-task-manager`](plugins/dsh-task-manager/README.md) —— 任务管理器：侧边栏标题下方「任务管理 / Task Commander」按钮，点击把中间主区域（AI 输入输出面板）**整区切换**为任务面板（官方 `conversation.view` 视图环，非右侧浮层），面板左上角「创建新的任务」按钮；header 视图标签一键切回对话。纯 profile-bundle 覆盖层，零官方源码修改。
 
 ### 元技能

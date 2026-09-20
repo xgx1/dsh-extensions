@@ -1,43 +1,38 @@
 # Web DSH Web Extension
 
-DSH Web GUI 布局扩展（纯 profile-bundle 覆盖层，**零官方源码修改**）：
+**空插件（预留 roster 行，零行为）**：原本的「对话布局」功能（对话内容铺满 / 标准、输入框左对齐 / 居中）已内置进 DSH 本体，本包不再提供 UI、样式或设置行。
 
-- **对话内容铺满**：内容列从固定 748px 撑满至 100% 可用宽度
-- **输入框左对齐**：输入框卡片贴左（停靠态与空态 hero 均生效）
-- **设置界面**：设置 → 常规 新增「对话布局」行（内容宽度 / 输入框位置 两个选择器），默认铺满 + 左对齐
-- **持久化**：偏好存于 localStorage，重启/刷新后保持
+保留 profile roster 行是为了让既有安装**无需修改 profile** 即可平滑过渡。
 
-## 安装
+## 为什么是空的
+
+DSH 本体的 `ui-conversation` 已提供等价的布局偏好入口，本包的 CSS 覆盖与 `settings.general.item` 行成为重复实现，故清空。
+
+清空后仍保留：
+
+- `cordis.patch.yml` 的 bundle 行（roster 成员）
+- `lib/index.js`（Host 加载入口，空 `apply`）
+- `lib/client.js`（Client 加载入口，空 `apply`）—— `dsh.client` 声明要求存在 `./client` 导出
+
+## 彻底移除（可选）
+
+不再需要这个 roster 行时，从 profile 三处删除即可：
 
 ```sh
-# 在 web profile 注册本包（本地 link）
-dsh plugin --profile web add link:/home/sx/projects/MyAI/dsh-extensions/plugins/web-dsh-web-extension
-systemctl --user restart dsh-web
+# 1. profiles/web/package.json：dependencies 与 dsh.profile.bundles 各删一行
+# 2. profiles/web/cordis.patch.yml：删除 web-dsh-web-extension 的插件行
+# 3. 删除插件目录并重新安装依赖
+rm -rf /home/sx/projects/MyAI/dsh-extensions/plugins/web-dsh-web-extension
 ```
 
-或手工：`profiles/web/package.json` 的 dependencies + `dsh.profile.bundles` 加入 `web-dsh-web-extension`，`cordis.patch.yml` 提供插件行。
+## 遗留偏好
 
-## 工作原理
-
-| 部件 | 机制 |
-|---|---|
-| Host 半 (`src/index.ts`) | 官方 `webServer.tapIndex` seam：向每个 index 响应注入静态覆盖样式表 + 启动脚本（读 localStorage → 在 `<html>` 打 `data-wde-wide` / `data-wde-left` 标记） |
-| Client 半 (`src/client/index.ts`) | 注册官方 additive seat `settings.general.item`（「对话布局」行）；偏好变更即时写 localStorage 并同步 `<html>` 标记 |
-| 覆盖样式 (`src/boot.ts`) | 全部规则以 `html[data-wde-*]` 为门、以官方 DOM 的稳定 data 属性为锚（`[data-phase]`、`[data-composer-seat]`、`[data-composer-card]`），不依赖任何 hashed CSS-module 类名 |
-
-关闭任一开关即恢复官方原始布局（标记移除 → 规则失活）。
+旧的 localStorage 键 `dsh-web-extension` 与 `<html>` 上的 `data-wde-wide` / `data-wde-left` 标记现在无人读取，也无规则消费；不影响功能。需要清理由浏览器手动删除即可。
 
 ## 开发
 
 ```sh
 pnpm install
 pnpm typecheck   # tsc --noEmit
-pnpm test        # vitest（persist / boot）
-pnpm build       # tsdown → lib/index.js + lib/client.js
+pnpm build       # tsdown → lib/index.js + lib/client.js（两者均为空 apply）
 ```
-
-构建依赖通过 `link:` 指向本机 harness 工作区 `/home/sx/projects/MyAI/deepseek-harness`（当前 0.1.5 客户端 SDK）：snapshot store 来自 `@deepseek-ai/dsh-client-store`（平台种子），client bundle 的 external 仅含 0.1.5 `PLATFORM_MODULES` 中的种子；harness 升级后若种子表变化，需同步 `tsdown.config.ts` 并重新构建。
-
-## 出处
-
-技术路线复用官方 `packages/client/ui-theme` 的 tapIndex 注入模式与 `ui-conversation` 的 `settings.general.item` 注册模式；持久化风格沿用本机已装 `dsh-aionui-panel` 的 localStorage 先例。构建产物形态（`__ModuleLoader__.load` + platform-module external）与官方 client bundle 一致。

@@ -1,17 +1,16 @@
 {
   "name": "web-dsh-web-extension",
-  "version": "0.1.0",
-  "description": "Web DSH Web Extension: full-width conversation content, left-aligned composer, and a Conversation Layout settings row — a pure profile-bundle overlay, zero dsh source changes",
+  "version": "0.2.0",
+  "description": "Reserved profile-bundle row with no behavior: the conversation layout preference (content width and composer position) now ships inside dsh itself, so this package keeps its roster row without contributing UI, styles, or settings",
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./client": {
-      "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
@@ -22,32 +21,17 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings"
-      ],
       "platform": "web"
     }
   },
   "peerDependencies": {
-    "react": "^18.2.0"
+    "@deepseek-ai/cordis": "^4.0.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis",
-    "@deepseek-ai/dsh-client-locale": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/locale",
-    "@deepseek-ai/dsh-client-store": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/store",
-    "@deepseek-ai/dsh-client-ui-primitives": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-primitives",
-    "@deepseek-ai/dsh-client-ui-renderer": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-renderer",
-    "@deepseek-ai/dsh-client-ui-settings": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-settings",
-    "@deepseek-ai/dsh-client-ui-slots": "link:/home/sx/projects/MyAI/deepseek-harness/packages/client/ui-slots",
-    "@deepseek-ai/dsh-host-webserver": "link:/home/sx/projects/MyAI/deepseek-harness/packages/host/webserver",
     "@types/node": "^22.20.0",
-    "@types/react": "~18.3.1",
-    "react": "^18.3.1",
     "tsdown": "0.22.2",
-    "typescript": "~5.7.2",
-    "vitest": "^4.1.8"
+    "typescript": "~5.7.2"
   },
   "files": [
     "lib",
@@ -58,7 +42,6 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "tsdown",
-    "typecheck": "tsc --noEmit --pretty false",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit --pretty false"
   }
 }

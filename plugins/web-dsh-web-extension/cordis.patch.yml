@@ -1,8 +1,7 @@
-# web-dsh-web-extension bundle patch: inserts the dual-face plugin row into the
-# web profile roster. Applied as a profile bundle layer (the `dsh.bundle.patch`
-# manifest field); the node half (exports ".") runs in the host process and
-# taps the index HTML, while the `dsh.client` declaration in package.json makes
-# the browser half (exports "./client") load in the web GUI.
+# web-dsh-web-extension bundle patch: keeps the dual-face plugin row in the web
+# profile roster. The package is now an empty placeholder — the conversation
+# layout preference ships inside dsh itself — so both halves are no-op loaders.
+# The row is retained so existing profile installs need no edit.
 - insert:
     - id: web-dsh-web-extension
       name: web-dsh-web-extension

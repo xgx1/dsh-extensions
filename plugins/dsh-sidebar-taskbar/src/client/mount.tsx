@@ -7,8 +7,6 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { TaskBar, type TaskBarSessions } from './TaskBar.tsx'
 
-export type { PendingSource } from './TaskBar.tsx'
-
 /** The official workspace-browser slot container (rendered with data-slot). */
 const WORKSPACES_SELECTOR = '[data-slot="sidebar.workspaces"]'
 
