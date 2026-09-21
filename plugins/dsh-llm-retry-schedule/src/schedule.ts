@@ -60,8 +60,9 @@ export const DEFAULT_JITTER_RATIO = 0
 /**
  * Failure codes owned when neither the configuration nor the provider route
  * declares any. Copied from `@deepseek-ai/dsh-llm`'s default retry policy
- * (`EMPTY_RESPONSE_CODE` plus the transient adapter codes) so a provider route
- * that registers without a policy still gets the expected transient set.
+ * (`EMPTY_RESPONSE_CODE`, `QUOTA`, plus the transient adapter codes) so a
+ * provider route that registers without a policy still gets the expected
+ * transient set.
  */
 export const DEFAULT_RETRYABLE_CODES: readonly string[] = Object.freeze([
   'EMPTY_RESPONSE',
@@ -69,6 +70,7 @@ export const DEFAULT_RETRYABLE_CODES: readonly string[] = Object.freeze([
   'SERVER',
   'TIMEOUT',
   'TRANSPORT',
+  'QUOTA',
 ])
 
 /** Largest delay `setTimeout` accepts (2^31 - 1 ms), matching the harness timer bound. */

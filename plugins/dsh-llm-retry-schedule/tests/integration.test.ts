@@ -152,6 +152,39 @@ describe('llm-retry-schedule on the real agent loop', () => {
       .toHaveLength(1)
   })
 
+  it('owns a QUOTA failure under the default retryable codes', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('account credits exhausted', 'QUOTA'),
+      textResponse('done'),
+    ])
+    context = await harness(adapter)
+    const agent = await startTurn(context, 'schedule-quota', adapter)
+
+    const [scheduled] = await driveRetries(context, agent, 1)
+
+    expect(scheduled?.data).toMatchObject({
+      turn: 1,
+      step: 1,
+      provider: 'mock',
+      mode: 'normal',
+      retry: 1,
+      maxRetries: 1000,
+      delayMs: 5_000,
+      failure: { message: 'account credits exhausted', code: 'QUOTA' },
+    })
+
+    const idle = agent.whenIdle()
+    await vi.advanceTimersByTimeAsync(0)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done' }],
+    })
+  })
+
   it('holds a long series at 5s, then 10s, then 60s inside one step', async () => {
     vi.useFakeTimers()
     const failures = Array.from({ length: 21 }, () => new LlmError('busy', 'RATE_LIMIT', { status: 429 }))

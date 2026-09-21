@@ -28,7 +28,7 @@ DSH 宿主插件：**可配置的模型请求重试预算**（重试次数 + 每
 | `retryableCodes` | 未设（见下） | 显式设置后才覆盖 provider 路由声明的可重试码 |
 | `jitterRatio` | `0` | 0 = 严格按表；>0 时在每档上下按比例抖动 |
 
-可重试码的来源优先级：**行内 `retryableCodes` > provider 路由 `retryPolicy.retryableCodes` > 内置默认** `EMPTY_RESPONSE / RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT`（与 `dsh-llm` 的默认策略一致）。
+可重试码的来源优先级：**行内 `retryableCodes` > provider 路由 `retryPolicy.retryableCodes` > 内置默认** `EMPTY_RESPONSE / RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT / QUOTA`（与 `dsh-llm` 的默认策略一致）。
 
 ## 机制
 

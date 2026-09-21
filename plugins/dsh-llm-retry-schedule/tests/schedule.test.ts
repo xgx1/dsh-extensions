@@ -22,7 +22,7 @@ describe('resolveRetrySchedule', () => {
     ])
     expect(resolved.jitterRatio).toBe(0)
     expect(resolved.retryableCodes).toBeUndefined()
-    expect(DEFAULT_RETRYABLE_CODES).toEqual(['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'])
+    expect(DEFAULT_RETRYABLE_CODES).toEqual(['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'QUOTA'])
   })
 
   it('accepts an explicit schedule and keeps it detached', () => {
