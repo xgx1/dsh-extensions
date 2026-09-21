@@ -7,7 +7,7 @@
  * Waiting outranks running — the user owes an answer and should see it first
  * in its own group.
  */
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
@@ -17,6 +17,20 @@ export interface TaskRow {
   id: SessionId
   /** Human-facing session label. */
   title: string
+}
+
+/**
+ * Whether one Session is a subagent child rather than a conversation of its own.
+ *
+ * The bar lists conversations a human acts on, so a subagent's running, waiting,
+ * or finished state belongs to its parent's row, not to a row of its own. The
+ * test is the durable `origin` marker, the same one the official workspace
+ * browser filters on.
+ * @param session - one Session list row.
+ * @returns whether the row is subagent-origin.
+ */
+export function isSubagentSession(session: SessionSummary): boolean {
+  return session.origin === 'subagent'
 }
 
 /** The three task-bar groups, in display order. */
@@ -36,7 +50,8 @@ export interface TaskGroups {
  * The finished group is not read from the status snapshot: `completionUnread`
  * is the harness's own acknowledgement, which opening a session clears. The
  * caller passes the ids its acknowledgement state still holds, so a finished
- * row survives the click that opens its conversation.
+ * row survives the click that opens its conversation. Subagent-origin sessions
+ * are excluded from every group.
  * @param list - the sessions list snapshot (titles and update order).
  * @param status - the `uiSession.sessionStatus` snapshot: per-Session running
  *   and pending-interaction facts.
@@ -53,7 +68,7 @@ export function classifyTasks(
   const waiting: TaskRow[] = []
   for (const id of list.ids) {
     const summary = list.byId[id]
-    if (summary === undefined) continue
+    if (summary === undefined || isSubagentSession(summary)) continue
     const facts = status.get(id)
     const row: TaskRow = { id, title: summary.displayTitle }
     if (facts?.pendingInteraction !== undefined) {

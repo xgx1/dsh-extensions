@@ -3,7 +3,7 @@ import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-sess
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks } from '../src/client/tasks.ts'
-import { dismissDone, EMPTY_DONE, reduceDone, sameDone } from '../src/client/dismissals.ts'
+import { dismissDone, EMPTY_DONE, reduceDone, sameDone, type DoneState } from '../src/client/dismissals.ts'
 
 /** Brand a spec-local string literal as a Session identity. */
 const sid = (value: string): SessionId => value as SessionId
@@ -135,6 +135,30 @@ describe('classifyTasks', () => {
     const state = list([summary({ id: 's1', displayTitle: '我的会话', updatedAt: 1 })])
     expect(classifyTasks(state, statusOf({ s1: { running: true } }), new Set()).running[0]?.title).toBe('我的会话')
   })
+
+  it('excludes subagent-origin sessions from every group', () => {
+    const state = list([
+      summary({ id: 'sub-done', origin: 'subagent', updatedAt: 4 }),
+      summary({ id: 'sub-running', origin: 'subagent', updatedAt: 3 }),
+      summary({ id: 'sub-waiting', origin: 'subagent', updatedAt: 2 }),
+      summary({ id: 'plain-done', updatedAt: 1 }),
+    ])
+    const groups = classifyTasks(state, statusOf({
+      'sub-done': { completionUnread: true },
+      'sub-running': { running: true },
+      'sub-waiting': { pendingInteraction: pending('sub-waiting') },
+      'plain-done': { completionUnread: true },
+    }), new Set([sid('sub-done'), sid('plain-done')]))
+    expect(groups.done.map((row) => row.id)).toEqual(['plain-done'])
+    expect(groups.running).toEqual([])
+    expect(groups.waiting).toEqual([])
+  })
+
+  it('keeps a parented session that is not subagent-origin', () => {
+    const state = list([summary({ id: 'forked', parentId: sid('parent'), updatedAt: 1 })])
+    const groups = classifyTasks(state, statusOf({ forked: { running: true } }), new Set())
+    expect(groups.running.map((row) => row.id)).toEqual(['forked'])
+  })
 })
 
 describe('reduceDone', () => {
@@ -213,6 +237,24 @@ describe('reduceDone', () => {
     const state = list([summary({ id: 'a', updatedAt: 1 })])
     const raised = statusOf({ a: { completionUnread: true } })
     expect(reduceDone(EMPTY_DONE, state, raised).shown).toEqual([sid('a')])
+  })
+
+  it('never announces a subagent-origin completion', () => {
+    const state = list([summary({ id: 'sub', origin: 'subagent', updatedAt: 1 })])
+    const next = reduceDone(EMPTY_DONE, state, statusOf({ sub: { completionUnread: true } }))
+    expect(next.shown).toEqual([])
+    expect(next.unread).toEqual([])
+  })
+
+  it('drops a subagent-origin row recorded before the rule existed', () => {
+    const state = list([
+      summary({ id: 'sub', origin: 'subagent', updatedAt: 1 }),
+      summary({ id: 'plain', updatedAt: 2 }),
+    ])
+    const legacy: DoneState = { shown: [sid('sub'), sid('plain')], unread: [sid('sub'), sid('plain')] }
+    const next = reduceDone(legacy, state, statusOf({}))
+    expect(next.shown).toEqual([sid('plain')])
+    expect(next.unread).toEqual([])
   })
 })
 

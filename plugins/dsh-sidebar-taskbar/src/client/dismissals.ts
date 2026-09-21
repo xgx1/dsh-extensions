@@ -13,6 +13,7 @@
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { isSubagentSession } from './tasks.ts'
 
 /** Finished-group state, JSON-shaped so it survives a reload. */
 export interface DoneState {
@@ -40,7 +41,9 @@ const STORAGE_KEY = 'dsh-sidebar-taskbar/done-v1'
  * flag falling is deliberately ignored: that is the harness acknowledging the
  * completion by opening the session, and the row must outlive it. A session
  * that runs again leaves the finished group for the running one, and one that
- * leaves the Session list leaves both groups.
+ * leaves the Session list leaves both groups. Subagent-origin sessions are
+ * never bar rows, so an entry recorded before that rule existed is dropped
+ * here rather than lingering until the user closes it.
  * @param state - state carried from the previous snapshot.
  * @param list - the sessions list snapshot.
  * @param status - the `uiSession.sessionStatus` snapshot.
@@ -54,6 +57,11 @@ export function reduceDone(
   const shown = new Set(state.shown)
   const unread = new Set<SessionId>()
   for (const id of list.ids) {
+    const summary = list.byId[id]
+    if (summary === undefined || isSubagentSession(summary)) {
+      shown.delete(id)
+      continue
+    }
     const facts = status.get(id)
     const flag = facts?.completionUnread === true
     if (flag) {

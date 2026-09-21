@@ -7,6 +7,7 @@ DSH Web GUI 侧边栏会话任务栏（纯 profile-bundle 覆盖层，**零官�
   - **运行中**：会话名 + 🔴 红点，点击跳转
   - **等待回复**：会话名 + 🟡 琥珀点，点击跳转
 - 状态实时变化（运行中→结束自动移动分组）；侧边栏折叠为窄条时任务栏自动隐藏
+- **只列主会话，忽略子 agent 会话**：判定用官方同一个 `origin === 'subagent'` 标记（与工作区浏览器的过滤条件一致），子 agent 的运行/等待/结束状态归到父会话那一行
 - 数据复用官方两个只读源：`sessions.list`（标题与更新顺序）与 `uiSession.sessionStatus`（`running` / `pendingInteraction` / `completionUnread`）。「运行结束」组另有一份本地确认态（localStorage），因为官方的 `completionUnread` 在会话成为主视图时就被清除——直接用它，点开会话的那一下就会把这一行点没
 
 ## 安装
@@ -22,7 +23,7 @@ systemctl --user restart dsh-web
 |---|---|
 | `src/client/mount.tsx` | 等待官方 `[data-slot="sidebar.workspaces"]` 容器（MutationObserver），在它之前插入任务栏锚点并 `createRoot` 挂载（aionui-panel 同款 DOM 挂载先例） |
 | `src/client/TaskBar.tsx` | `useSyncExternalStore` 订阅官方 sessions 快照与统一 UI 状态快照；三组分类渲染；点击 `uiWorkspace.openSession(id)` 跳转；ResizeObserver 检测侧边栏折叠（宽度 < 100px 隐藏） |
-| `src/client/tasks.ts` | 纯函数分类：等待回复优先于运行中，运行中优先于绿色结束态；结束组按 `updatedAt` 最新在前，运行/等待组最旧在前 |
+| `src/client/tasks.ts` | 纯函数分类：等待回复优先于运行中，运行中优先于绿色结束态；结束组按 `updatedAt` 最新在前，运行/等待组最旧在前；`origin === 'subagent'` 的会话三组全排除 |
 | `src/client/dismissals.ts` | 「运行结束」组的本地确认态：官方 `completionUnread` 上升时入列、点 ✕ 出列，另在会话重新运行或离开列表时出列；localStorage 持久化（键 `dsh-sidebar-taskbar/done-v1`） |
 
 ### 状态语义
@@ -37,6 +38,12 @@ systemctl --user restart dsh-web
 
 三者的优先级即上表顺序：欠回答的会话必须先看到。
 
+### 子 agent 会话
+
+任务栏只列人类直接对话的主会话。`SessionSummary.origin === 'subagent'` 是官方唯一的耐久标记（工作区浏览器也用它过滤），本插件沿用同一判定，不自造：子 agent 的运行中/等待回复/已结束都归到父会话那一行，父会话才是人要处理的那一行。带 `parentId` 但不是 subagent 来源的会话（例如 fork）仍然保留——它不是子 agent。
+
+结束组的本地确认态同样跳过子 agent：既不会把子 agent 的完成写入 `shown`，规则上线前已记录的旧条目也会在下次快照时被清掉，不会留到用户去点 ✕。
+
 ### 结束组的确认语义
 
 「运行结束」是通知，不是实时状态，所以它由本地确认态（`dismissals.ts`）驱动，而不是直接读官方旗标：
@@ -49,6 +56,7 @@ systemctl --user restart dsh-web
 
 ## 变更记录
 
+- **0.4.0** — 忽略子 agent 会话。三组分类与结束组确认态都按官方 `origin === 'subagent'` 过滤，子 agent 的运行/等待/结束状态归到父会话行；旧确认态里已记录的子 agent 条目会被清掉。带 `parentId` 的非 subagent 会话（如 fork）不受影响。
 - **0.3.0** — 「运行结束」组改为手动关闭。原来该组直接读官方 `completionUnread`，点一下行（跳转到会话）官方就清除旗标、行随之消失；现在结束组由本地确认态驱动，点行只跳转、行仍在，只有点该行的 ✕ 才移除，关闭态刷新后依然有效。
 - **0.2.0** — 修复任务栏整体不可见。DSH 升级后旧实现读取的三个面已失效：`sessions.open` 移出 Session face（跳转改走 `uiWorkspace.openSession`），`SessionSummary.completed` 字段已删除，`uiSession.pendingInteractions` 已并入统一的 `uiSession.sessionStatus`。旧代码在 `getSnapshot()` 上调用 `undefined`，React 根渲染即抛错，任务栏锚点在 DOM 中但永远为空。
 - 0.1.0 — 初版。

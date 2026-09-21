@@ -1,7 +1,7 @@
 {
   "name": "dsh-sidebar-taskbar",
-  "version": "0.3.0",
-  "description": "DSH web GUI sidebar task bar: finished (green, manually dismissed), running (red) and waiting-for-reply (amber) sessions listed above the workspace browser, click to jump — a pure profile-bundle overlay, zero dsh source changes",
+  "version": "0.4.0",
+  "description": "DSH web GUI sidebar task bar: main-conversation tasks only (subagent sessions ignored) \u2014 finished (green, manually dismissed), running (red), waiting-for-reply (amber) \u2014 listed above the workspace browser, click to jump; a pure profile-bundle overlay, zero dsh source changes",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
