@@ -41,6 +41,7 @@ import {
   type LlmCallConfig,
   type ReasoningEffortId,
 } from '@deepseek-ai/dsh-llm'
+import { pickAppliedRoute, type PendingRoute } from './apply.ts'
 import { AUTO_MODEL, AUTO_PROVIDER, AutoRouteAdapter } from './auto-route.ts'
 import {
   DEFAULT_POLICY,
@@ -138,12 +139,6 @@ interface DecisionRecord {
   /** Written after the compaction attempt, so it is the one mutable field. */
   compaction: { decided: boolean; occupancy?: number; applied?: boolean; error?: string }
   readonly response: { model?: string; latencyMs?: number; warnings?: readonly string[] }
-}
-
-/** A decision waiting to be applied by this turn's first request. */
-interface PendingRoute {
-  readonly route: Route
-  readonly effort?: string
 }
 
 /** The user-role notice this plugin appends when it reroutes a turn. */
@@ -260,7 +255,9 @@ function routeNotice(route: Route, effort: string | undefined): NoticeMessage {
   return createUserMessage({
     content: [{
       type: 'text' as const,
-      text: `[model routed: this turn continues on ${label}${effort === undefined ? '' : ` (reasoning ${effort})`}]`,
+      text: `[model routed: this turn continues on ${label}${effort === undefined ? '' : ` (reasoning ${effort})`}; `
+        + 'a "[model changed: … continues with auto/auto]" notice reports the harness re-applying the placeholder '
+        + 'selection, not the model actually serving the request]',
     }],
     source: {
       kind: 'plugin' as const,
@@ -288,11 +285,25 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   /** This turn's decision, handed from pre-step to the first request. */
   const pending = new WeakMap<object, PendingRoute>()
+  /** The route this Agent's current turn is already running on, for later steps. */
+  const applied = new WeakMap<object, PendingRoute>()
+  /**
+   * Agents whose current turn is on `auto`, so the route is applied even when the
+   * request arrives carrying a concrete model instead of the placeholder. The
+   * harness retires a pending selection as soon as a header matches it, and after
+   * that the seed is whatever that header said.
+   */
+  const onAuto = new WeakSet<object>()
 
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const decision = await next()
     if (decision.kind !== 'enter' || payload.step !== 1) return decision
-    if (!appliesToSession(ctx, payload.agent.session, applyWhen)) return decision
+    const sessionIsAuto = appliesToSession(ctx, payload.agent.session, applyWhen)
+    if (!sessionIsAuto) {
+      onAuto.delete(payload.agent)
+      return decision
+    }
+    onAuto.add(payload.agent)
 
     let notice: NoticeMessage | undefined
     try {
@@ -305,6 +316,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         lang,
         logFile,
         pending,
+        applied,
         auto: applyWhen === 'auto',
       })
     } catch (error) {
@@ -318,14 +330,24 @@ export function apply(ctx: Context, config: Config = {}): void {
     'agent/request',
     async (payload, next): Promise<LlmCallConfig> => {
       const resolved = await next()
-      if (payload.step !== 1) return resolved
-      // A session on `auto` must never dispatch the placeholder route, even when
-      // Laya was not consulted; every other session needs `live` + `always`.
+      // A session on `auto` must never dispatch the placeholder route — on any
+      // step, not only the first: the harness re-applies that selection every
+      // step, because a rerouted header never matches it and so never retires it.
+      // Every other session is left alone unless `applyWhen: always` asked for it.
       const onAutoRoute = resolved.provider === AUTO_PROVIDER
-      if (!onAutoRoute && !(mode === 'live' && applyWhen === 'always')) return resolved
-      const chosen = pending.get(payload.agent) ?? (onAutoRoute ? staticPending(policy) : undefined)
+      const alwaysOnFirstStep = mode === 'live' && applyWhen === 'always' && payload.step === 1
+      if (!onAutoRoute && !alwaysOnFirstStep) return resolved
+      const chosen = onAutoRoute || onAuto.has(payload.agent)
+        ? pickAppliedRoute({
+          step: payload.step,
+          pending: pending.get(payload.agent),
+          applied: applied.get(payload.agent),
+          fallback: staticPending(policy),
+        })
+        : pending.get(payload.agent)
       if (chosen === undefined) return resolved
-      pending.delete(payload.agent)
+      if (payload.step === 1) pending.delete(payload.agent)
+      applied.set(payload.agent, chosen)
       // An explicit effort persists into later steps through the request header,
       // so an unset effort is cleared rather than merely omitted.
       const { reasoningEffort: _inherited, ...rest } = resolved
@@ -385,7 +407,15 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   /** Advertise the `auto` selector entry; the router resolves it every turn. */
   ctx.inject(['llm'], scope => {
-    scope.effect(() => scope.llm.registerAdapter([AUTO_PROVIDER], new AutoRouteAdapter()))
+    scope.effect(() => scope.llm.registerAdapter([AUTO_PROVIDER], new AutoRouteAdapter(
+      () => {
+        const fallback = staticPending(policy)
+        return fallback === undefined
+          ? undefined
+          : { route: fallback.route, stream: options => scope.llm.stream(options) }
+      },
+      message => announce(message),
+    )))
     // Read the registry back: the browser catalog is a projection of exactly this
     // list, so "the entry exists" is the fact worth putting on the service log.
     const listed = scope.llm.listProviders().some(provider => provider.id === AUTO_PROVIDER)
@@ -438,6 +468,8 @@ interface DecideOptions {
   readonly lang: string
   readonly logFile: string | null
   readonly pending: WeakMap<object, PendingRoute>
+  /** Records the route this turn runs on, for the steps after the first. */
+  readonly applied: WeakMap<object, PendingRoute>
   /** True when the acting session reached the router through the `auto` route. */
   readonly auto: boolean
 }
@@ -483,7 +515,7 @@ function unchangedNotice(header: unknown, chosen: PendingRoute): boolean {
  * @returns The model-visible notice to append, or `undefined` when none is owed.
  */
 async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessage | undefined> {
-  const { agent, messages, signal, policy, mode, lang, logFile, pending, auto } = options
+  const { agent, messages, signal, policy, mode, lang, logFile, pending, applied, auto } = options
   const session = agent.session
   const composed = composeState(humanMessages(session, messages), policy.stateBudgetTokens)
   const header = session?.requestHeader?.()
@@ -517,6 +549,7 @@ async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessa
     })
     if (chosenStatic === undefined) return undefined
     pending.set(agent, chosenStatic)
+    applied.set(agent, chosenStatic)
     return unchangedNotice(header, chosenStatic)
       ? undefined
       : routeNotice(chosenStatic.route, chosenStatic.effort)
@@ -574,6 +607,7 @@ async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessa
 
   if (chosen === undefined) return undefined
   pending.set(agent, chosen)
+  applied.set(agent, chosen)
 
   if (!auto) {
     // Publish the selection so the UI model selector names the route in force;

@@ -7,12 +7,14 @@
  * selector entry is to register a provider that advertises it. This adapter
  * exists for exactly that: it advertises one model, `auto`.
  *
- * No request should ever reach `stream()`. The router rewrites the call config
- * at `agent/request` before dispatch, and a session that selects `auto` always
- * resolves to a real route — the Laya choice in `live` mode, the configured
- * static default otherwise. Reaching this adapter therefore means the router is
- * not composed at all (or its `unlabeledRoute` is `null`), which is a
- * misconfiguration worth failing loudly for.
+ * The router normally rewrites the call config at `agent/request` before
+ * dispatch, and a session that selects `auto` resolves to a real route — the
+ * Laya choice in `live` mode, the configured static default otherwise. A request
+ * can still arrive here when it is not an agent step the router sees (a title or
+ * summary call, a caller that bypasses `agent/request`), so this adapter
+ * **delegates** to the configured static default instead of failing the turn.
+ * With no default configured there is nothing sensible to run, and the stream
+ * fails loudly.
  *
  * @module dsh-laya-router/auto-route
  */
@@ -40,8 +42,29 @@ export const AUTO_MODEL = 'auto'
  */
 const AUTO_CONTEXT_WINDOW = 1_000_000
 
-/** Adapter that advertises the `auto` selector entry and refuses to be called. */
+/** Where a request that reached the placeholder route is actually dispatched. */
+export interface AutoRouteFallback {
+  /** Route to dispatch on behalf of `auto`. */
+  readonly route: { readonly provider: string; readonly model: string }
+  /** Runtime dispatch entry point, re-resolving the adapter for {@link route}. */
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+}
+
+/** Adapter that advertises the `auto` selector entry and delegates dispatch. */
 export class AutoRouteAdapter extends LlmAdapter {
+  #noted = false
+
+  /**
+   * @param fallback - Resolves the configured static default, or `undefined` when none is set.
+   * @param note - Reports the first delegation, which means something bypassed the router.
+   */
+  constructor(
+    private readonly fallback: () => AutoRouteFallback | undefined,
+    private readonly note: (message: string) => void = () => {},
+  ) {
+    super()
+  }
+
   /**
    * Name the provider group in the selector.
    * @param provider - the route this registration owns.
@@ -81,16 +104,26 @@ export class AutoRouteAdapter extends LlmAdapter {
   }
 
   /**
-   * Refuse dispatch: `auto` must be replaced by the router before a call.
-   * @param _options - the assembled request this adapter must never receive.
-   * @returns Never; the stream throws on first iteration.
+   * Dispatch on the configured static default.
+   *
+   * @param options - the assembled request that reached the placeholder route.
+   * @returns The fallback route's chunk stream.
+   * @throws LlmError when no static default is configured.
    */
-  override async *stream(_options: GenerateOptions): AsyncGenerator<never, void, undefined> {
-    throw new LlmError(
-      'route "auto" is resolved per turn by dsh-laya-router, and no request should reach it; '
-      + 'either the router is not composed for this profile, or its policy.unlabeledRoute is null',
-      'AUTO_ROUTE_UNRESOLVED',
-    )
+  override async *stream(options: GenerateOptions): AsyncGenerator<StreamChunk, void, undefined> {
+    const target = this.fallback()
+    if (target === undefined) {
+      throw new LlmError(
+        'route "auto" has no route to run on: configure policy.unlabeledRoute (or compose dsh-laya-router) '
+        + 'so a request that reaches the auto entry resolves to a real model',
+        'AUTO_ROUTE_UNRESOLVED',
+      )
+    }
+    if (!this.#noted) {
+      this.#noted = true
+      this.note(`a request reached the auto route unresolved; running it on ${target.route.provider}/${target.route.model}`)
+    }
+    yield* target.stream({ ...options, provider: target.route.provider, model: target.route.model })
   }
 }
 

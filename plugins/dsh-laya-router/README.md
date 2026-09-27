@@ -44,6 +44,10 @@ DSH 宿主插件：**逐轮模型路由 + 思考档位映射 + 主动压缩**，
 
 任何情况下 `auto` 都会被解析成一个真实模型——插件在 `agent/request` 兜底，绝不会把请求发给占位适配器（真发过去会 loud 失败并给出可操作的报错）。
 
+**为什么是每一步都解析**：harness 只在「写出的 `request/header` 与它完全一致」时才把用户的选择标记为已消费；而路由会把 `auto` 换成真实模型，于是这条选择**永远不会被消费**，harness 会在这一步之后重新应用它。所以 `auto` 必须按 step 解析（首步用本轮决策，后续步沿用本轮已经跑的路由，不中途换模型）。
+
+**那条 `[model changed: … continues with auto/auto]` 通知**：同上原因——harness 比较「本会话的选择（auto）」与「上一个请求头（真实路由）」，两者必然不同，于是每个 step 都追加一条。插件无法改这个私有选择（`selectForNextRequest` 是 session-controller 内部的，不是服务），因此改用**我们自己的通知把话说清楚**：`[model routed: …; a "[model changed: … continues with auto/auto]" notice reports the harness re-applying the placeholder selection, not the model actually serving the request]`。要彻底消掉它，需要在切换 auto 后的第一轮先让一个 `auto/auto` 请求头落地把选择消费掉（用兜底适配器执行），代价是那一轮的请求头不accurate——目前没做。
+
 ## `/route` 命令
 
 | 命令 | 作用 |
