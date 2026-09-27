@@ -22,6 +22,28 @@ DSH 宿主插件：**逐轮模型路由 + 思考档位映射 + 主动压缩**，
 
 决策逐条写进 `$DSH_HOME/laya-router.jsonl`（JSON Lines，一行一次判定），包含判断状态被裁剪了多少条消息、三个答案及其置信度、最终路由与依据、以及侧车返回的模型与耗时。`basis` 字段区分「Laya 判的」（`laya`）与「文本没说、落到未标注默认档」（`unlabeled`）。
 
+## 谁会被路由：模型选择器里的 `auto`
+
+插件注册一个只含一个模型的 LLM provider（`auto/auto`），于是模型选择器里多出一组「**自动（判断层逐轮选择）**」——浏览器目录是 LLM 注册表的投影（`listProviders()` → `listModels()`），这是唯一受支持的入口方式。
+
+- **选中 `auto` 的会话**：每轮由判断层决定模型、档位，必要时压缩。
+- **选中具体模型的会话**：判断层完全不插手（不会为它花掉一次 Laya 调用）。
+- 会话没有显式选择时，看部署默认 `agent-default-model`：它是 `auto` 就等于选中了 auto。
+- `auto` 会话**不会**被写 `model/selection`——选择器继续显示 `auto`（那正是它的长期选择）；这一轮真实跑在哪个模型，看会话里的 `[model routed: …]` 通知、`/route status`，或 `request/header`。
+- 保留旧行为的开关：`applyWhen: always` 时 `mode: live` 会路由**所有**会话（旧的「全局自动」语义）。
+
+模式与效果（`off` 时不问 Laya；`shadow` 时问了也不照它办）：
+
+| 会话 | mode | 是否问 Laya | 实际应用 |
+|---|---|---|---|
+| auto | `off` | 否 | 静态默认档（`unlabeledRoute`） |
+| auto | `shadow` | 是（只记录） | 静态默认档 |
+| auto | `live` | 是 | Laya 选的路由 + 档位 + 压缩 |
+| 具体模型 | `off` / `shadow` | 否 | 不改动 |
+| 具体模型 | `live` + `applyWhen: always` | 是 | Laya 选的路由 + 档位 + 压缩 |
+
+任何情况下 `auto` 都会被解析成一个真实模型——插件在 `agent/request` 兜底，绝不会把请求发给占位适配器（真发过去会 loud 失败并给出可操作的报错）。
+
 ## `/route` 命令
 
 | 命令 | 作用 |

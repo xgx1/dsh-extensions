@@ -14,11 +14,18 @@
 # The router needs the local Laya sidecar (`laya-sidecar.service`, :8083) and is
 # a no-op for a turn when the sidecar or `ctx.laya` is absent.
 #
+# WHICH SESSIONS. The plugin registers an `auto/auto` provider so the model
+# selector offers a 「自动（判断层逐轮选择）」entry. With `applyWhen: auto` (the
+# default) only a session whose selected model is `auto` is routed; picking a
+# concrete model means the router keeps its hands off. `applyWhen: always`
+# restores the earlier behaviour of routing every session while `mode: live`.
+#
 # Any of it can be overridden from the profile's own cordis.patch.yml, which is
 # applied after every bundle layer and wins:
 #   - id: laya-router
 #     config:
 #       mode: live
+#       applyWhen: auto
 #       policy:
 #         unlabeledRoute: md
 #         compaction: { newTaskProbability: 0.65, minOccupancy: 0.4 }
@@ -27,4 +34,5 @@
       name: 'dsh-laya-router'
       config:
         mode: shadow
+        applyWhen: auto
         lang: zh

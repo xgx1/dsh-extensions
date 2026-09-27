@@ -41,6 +41,7 @@ import {
   type LlmCallConfig,
   type ReasoningEffortId,
 } from '@deepseek-ai/dsh-llm'
+import { AUTO_MODEL, AUTO_PROVIDER, AutoRouteAdapter } from './auto-route.ts'
 import {
   DEFAULT_POLICY,
   QUESTIONS,
@@ -68,6 +69,12 @@ export type Mode = 'off' | 'shadow' | 'live'
 export interface Config {
   /** Behaviour mode before any `/route` override; defaults to `shadow`. */
   mode?: Mode
+  /**
+   * Which sessions the router may act on. `auto` (the default) acts only on a
+   * session whose selected model is the `auto` sentinel; `always` keeps the
+   * earlier behaviour of routing every session while `mode` is `live`.
+   */
+  applyWhen?: 'auto' | 'always'
   /** Language hint for every Laya call; defaults to `zh`. */
   lang?: string
   /** JSONL decision log; `null` disables it, omitted uses `$DSH_HOME/laya-router.jsonl`. */
@@ -115,6 +122,7 @@ interface LlmService {
 interface SessionLike {
   deriveMessages?(): MessageLike[]
   requestHeader?(): unknown
+  ownEvents?(): readonly unknown[]
 }
 
 /** One decision, appended to the JSONL log whether or not it was applied. */
@@ -124,6 +132,8 @@ interface DecisionRecord {
   readonly state: { messages: number; kept: number; elided: number; estimatedTokens: number }
   readonly judgement: Record<string, unknown>
   readonly route: { key: string; provider: string; model: string; basis: string } | null
+  /** The route this turn actually ran on; null when the router changed nothing. */
+  applied: { provider: string; model: string } | null
   readonly effort?: string
   /** Written after the compaction attempt, so it is the one mutable field. */
   compaction: { decided: boolean; occupancy?: number; applied?: boolean; error?: string }
@@ -273,6 +283,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const stateFile = config.stateFile === null ? null : (config.stateFile ?? join(dshHome(), 'laya-router-state.json'))
   const policy = mergePolicy(DEFAULT_POLICY, config.policy)
   const configuredMode: Mode = config.mode ?? 'shadow'
+  const applyWhen = config.applyWhen ?? 'auto'
   let mode: Mode = readModeOverride(stateFile) ?? configuredMode
 
   /** This turn's decision, handed from pre-step to the first request. */
@@ -280,8 +291,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.on('agent/pre-step', async (payload, next): Promise<PreStepDecision> => {
     const decision = await next()
-    if (mode === 'off' || decision.kind !== 'enter') return decision
-    if (payload.step !== 1) return decision
+    if (decision.kind !== 'enter' || payload.step !== 1) return decision
+    if (!appliesToSession(ctx, payload.agent.session, applyWhen)) return decision
 
     let notice: NoticeMessage | undefined
     try {
@@ -294,6 +305,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         lang,
         logFile,
         pending,
+        auto: applyWhen === 'auto',
       })
     } catch (error) {
       log(ctx, 'warn', `decision failed: ${String(error)}`)
@@ -306,8 +318,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     'agent/request',
     async (payload, next): Promise<LlmCallConfig> => {
       const resolved = await next()
-      if (mode !== 'live' || payload.step !== 1) return resolved
-      const chosen = pending.get(payload.agent)
+      if (payload.step !== 1) return resolved
+      // A session on `auto` must never dispatch the placeholder route, even when
+      // Laya was not consulted; every other session needs `live` + `always`.
+      const onAutoRoute = resolved.provider === AUTO_PROVIDER
+      if (!onAutoRoute && !(mode === 'live' && applyWhen === 'always')) return resolved
+      const chosen = pending.get(payload.agent) ?? (onAutoRoute ? staticPending(policy) : undefined)
       if (chosen === undefined) return resolved
       pending.delete(payload.agent)
       // An explicit effort persists into later steps through the request header,
@@ -367,6 +383,15 @@ export function apply(ctx: Context, config: Config = {}): void {
     announce('/route registered (status | shadow | live | off | stats | reset)')
   })
 
+  /** Advertise the `auto` selector entry; the router resolves it every turn. */
+  ctx.inject(['llm'], scope => {
+    scope.effect(() => scope.llm.registerAdapter([AUTO_PROVIDER], new AutoRouteAdapter()))
+    // Read the registry back: the browser catalog is a projection of exactly this
+    // list, so "the entry exists" is the fact worth putting on the service log.
+    const listed = scope.llm.listProviders().some(provider => provider.id === AUTO_PROVIDER)
+    announce(`auto selector entry registered (${AUTO_PROVIDER}/${AUTO_MODEL}, registry=${listed ? 'ok' : 'MISSING'})`)
+  })
+
   announce(`ready (mode=${mode}, lang=${lang}, routes=${Object.keys(policy.routes).join('/')})`)
 }
 
@@ -413,22 +438,61 @@ interface DecideOptions {
   readonly lang: string
   readonly logFile: string | null
   readonly pending: WeakMap<object, PendingRoute>
+  /** True when the acting session reached the router through the `auto` route. */
+  readonly auto: boolean
 }
 
 /**
- * Ask Laya, record the decision, and — in live mode — compact, publish the
- * selection and remember the route for this turn's first request.
+ * The route a session on `auto` falls back to when Laya does not decide it:
+ * `mode: off` never asks, and `mode: shadow` may record but not yet act.
+ */
+function staticPending(policy: ReturnType<typeof mergePolicy>): PendingRoute | undefined {
+  const key = policy.unlabeledRoute
+  if (key === null) return undefined
+  const route = policy.routes[key]
+  return route === undefined ? undefined : { route }
+}
+
+/**
+ * Whether the router may act on a session: on `auto` always, otherwise only in
+ * `always` mode. A session that never picked a model explicitly inherits the
+ * deployment default, which is the second way `auto` can be in force.
+ */
+function appliesToSession(ctx: Context, session: SessionLike | undefined, applyWhen: 'auto' | 'always'): boolean {
+  if (applyWhen === 'always') return true
+  const events = session?.ownEvents?.() ?? []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as { type?: string; data?: unknown } | undefined
+    if (event?.type !== 'model/selection') continue
+    const selection = event.data as { provider?: string } | undefined
+    return selection?.provider === AUTO_PROVIDER
+  }
+  const defaults = ctx.get('agentDefaultModel') as { currentSelection?(): { provider?: string } } | undefined
+  return defaults?.currentSelection?.().provider === AUTO_PROVIDER
+}
+
+/** Whether the persisted request header already names this exact route. */
+function unchangedNotice(header: unknown, chosen: PendingRoute): boolean {
+  const previous = (header as { config?: { provider?: string; model?: string } } | undefined)?.config
+  return previous?.provider === chosen.route.provider && previous?.model === chosen.route.model
+}
+
+/**
+ * Ask Laya, record the decision, and apply it for this turn.
  *
  * @returns The model-visible notice to append, or `undefined` when none is owed.
  */
 async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessage | undefined> {
-  const { agent, messages, signal, policy, mode, lang, logFile, pending } = options
+  const { agent, messages, signal, policy, mode, lang, logFile, pending, auto } = options
   const session = agent.session
   const composed = composeState(humanMessages(session, messages), policy.stateBudgetTokens)
   const header = session?.requestHeader?.()
   const occupancy = occupancyOf(ctx, session, header)
+  // `off` means "do not consult Laya". A session on `auto` still has to resolve
+  // to a real route, which the selection step below does with the static default.
+  const laya = mode === 'off' ? undefined : (ctx.get('laya') as LayaService | undefined)
+  const chosenStatic = auto ? staticPending(policy) : undefined
 
-  const laya = ctx.get('laya') as LayaService | undefined
   const base = {
     time: new Date().toISOString(),
     mode,
@@ -440,33 +504,35 @@ async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessa
     },
   }
 
-  if (composed.state.length === 0) {
+  if (composed.state.length === 0 || laya === undefined) {
     await recordDecision(logFile, {
       ...base,
       judgement: {},
       route: null,
+      applied: chosenStatic === undefined
+        ? null
+        : { provider: chosenStatic.route.provider, model: chosenStatic.route.model },
       compaction: { decided: false, ...occupancy === undefined ? {} : { occupancy } },
       response: {},
     })
-    return undefined
-  }
-  if (laya === undefined) {
-    await recordDecision(logFile, {
-      ...base,
-      judgement: {},
-      route: null,
-      compaction: { decided: false, ...occupancy === undefined ? {} : { occupancy } },
-      response: { warnings: ['ctx.laya is not registered (dsh-laya missing or not active)'] },
-    })
-    log(ctx, 'warn', 'no ctx.laya service; this turn is not routed')
-    return undefined
+    if (chosenStatic === undefined) return undefined
+    pending.set(agent, chosenStatic)
+    return unchangedNotice(header, chosenStatic)
+      ? undefined
+      : routeNotice(chosenStatic.route, chosenStatic.effort)
   }
 
   const response = await laya.ask({ state: composed.state, questions: QUESTIONS, lang, strict: false })
   const judgement = readJudgement(response.answers ?? {}, policy.confidenceFloor)
   const choice = pickRoute(judgement, policy)
   const effort = choice === null ? undefined : pickEffort(choice.key, judgement, policy)
-  const compact = shouldCompact(judgement, occupancy, policy)
+  const compact = mode === 'live' && shouldCompact(judgement, occupancy, policy)
+
+  // What this turn will actually run on: Laya's choice in `live`, otherwise the
+  // static default for an `auto` session and nothing for any other session.
+  const chosen: PendingRoute | undefined = mode === 'live' && choice !== null
+    ? { route: choice.route, ...effort === undefined ? {} : { effort } }
+    : chosenStatic
 
   const record: DecisionRecord = {
     ...base,
@@ -480,6 +546,7 @@ async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessa
     route: choice === null
       ? null
       : { key: choice.key, provider: choice.route.provider, model: choice.route.model, basis: choice.basis },
+    applied: chosen === undefined ? null : { provider: chosen.route.provider, model: chosen.route.model },
     ...effort === undefined ? {} : { effort },
     compaction: { decided: compact, ...occupancy === undefined ? {} : { occupancy } },
     response: {
@@ -487,11 +554,6 @@ async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessa
       ...response.latency_ms === undefined ? {} : { latencyMs: response.latency_ms },
       ...response.warnings === undefined ? {} : { warnings: response.warnings },
     },
-  }
-
-  if (mode !== 'live') {
-    await recordDecision(logFile, record)
-    return undefined
   }
 
   if (compact) {
@@ -510,22 +572,25 @@ async function decide(ctx: Context, options: DecideOptions): Promise<NoticeMessa
 
   await recordDecision(logFile, record)
 
-  if (choice === null) return undefined
-  const previous = (header as { config?: { provider?: string; model?: string } } | undefined)?.config
-  const unchanged = previous?.provider === choice.route.provider && previous?.model === choice.route.model
-  // Publish the selection so the UI's model selector names the route in force;
-  // `model/selection` is a built-in event every build already knows.
-  try {
-    const append = (session as { append?: (type: string, data: unknown) => unknown } | undefined)?.append
-    append?.call(session, 'model/selection', {
-      provider: choice.route.provider,
-      model: choice.route.model,
-      ...effort === undefined ? {} : { reasoningEffort: effort },
-    })
-  } catch (error) {
-    log(ctx, 'warn', `model/selection was not recorded: ${String(error)}`)
+  if (chosen === undefined) return undefined
+  pending.set(agent, chosen)
+
+  if (!auto) {
+    // Publish the selection so the UI model selector names the route in force;
+    // `model/selection` is a built-in event every build already knows. A session
+    // on `auto` keeps showing `auto` — that is the standing choice it made.
+    try {
+      const append = (session as { append?: (type: string, data: unknown) => unknown } | undefined)?.append
+      append?.call(session, 'model/selection', {
+        provider: chosen.route.provider,
+        model: chosen.route.model,
+        ...chosen.effort === undefined ? {} : { reasoningEffort: chosen.effort },
+      })
+    } catch (error) {
+      log(ctx, 'warn', `model/selection was not recorded: ${String(error)}`)
+    }
   }
-  if (unchanged) return undefined
-  pending.set(agent, { route: choice.route, ...effort === undefined ? {} : { effort } })
-  return routeNotice(choice.route, effort)
+
+  if (unchangedNotice(header, chosen)) return undefined
+  return routeNotice(chosen.route, chosen.effort)
 }
