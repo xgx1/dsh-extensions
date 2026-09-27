@@ -1,0 +1,38 @@
+{
+  "name": "dsh-laya-router",
+  "version": "0.1.0",
+  "description": "DSH host plugin: per-turn model routing, reasoning-effort mapping and proactive compaction, decided by a local Laya System One model",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:/home/sx/projects/MyAI/deepseek-harness-dev/vendor/cordis",
+    "@deepseek-ai/dsh-agent": "link:/home/sx/projects/MyAI/deepseek-harness-dev/packages/core/agent",
+    "@deepseek-ai/dsh-llm": "link:/home/sx/projects/MyAI/deepseek-harness-dev/packages/llm/llm",
+    "@types/node": "^22.20.0",
+    "tsdown": "0.22.2",
+    "typescript": "~5.7.2"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit --pretty false"
+  }
+}

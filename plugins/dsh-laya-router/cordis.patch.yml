@@ -1,0 +1,30 @@
+# dsh-laya-router bundle patch: inserts one row into whatever profile selects
+# this bundle.
+#
+# The row listens on two agent-scoped waterfalls from the profile's own scope:
+# `agent/pre-step` decides once per user turn (and compacts when the newest
+# message starts another task), and `agent/request` applies the chosen route and
+# reasoning effort at `step === 1`. `dsh-scope` admits ancestor listeners into
+# descendant-scoped events, which is why this works without an agent preset.
+#
+# MODE. `shadow` decides and records but changes nothing — start there, compare
+# its JSONL decisions (default `$DSH_HOME/laya-router.jsonl`) against what you
+# would have chosen, and only then switch to `live`. `off` disables the row.
+#
+# The router needs the local Laya sidecar (`laya-sidecar.service`, :8083) and is
+# a no-op for a turn when the sidecar or `ctx.laya` is absent.
+#
+# Any of it can be overridden from the profile's own cordis.patch.yml, which is
+# applied after every bundle layer and wins:
+#   - id: laya-router
+#     config:
+#       mode: live
+#       policy:
+#         unlabeledRoute: md
+#         compaction: { newTaskProbability: 0.65, minOccupancy: 0.4 }
+- insert:
+    - id: laya-router
+      name: 'dsh-laya-router'
+      config:
+        mode: shadow
+        lang: zh
