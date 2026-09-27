@@ -22,6 +22,17 @@ DSH 宿主插件：**逐轮模型路由 + 思考档位映射 + 主动压缩**，
 
 决策逐条写进 `$DSH_HOME/laya-router.jsonl`（JSON Lines，一行一次判定），包含判断状态被裁剪了多少条消息、三个答案及其置信度、最终路由与依据、以及侧车返回的模型与耗时。`basis` 字段区分「Laya 判的」（`laya`）与「文本没说、落到未标注默认档」（`unlabeled`）。
 
+## `/route` 命令
+
+| 命令 | 作用 |
+|---|---|
+| `/route` 或 `/route status` | 当前模式、决策日志路径、最近一次决策（路由/依据/耗时/压缩） |
+| `/route shadow` `/route live` `/route off` | 运行时切换，持久化到 `$DSH_HOME/laya-router-state.json`，**重启后仍生效** |
+| `/route stats [n]` | 最近 n 条（默认 50）的分布：各路由次数、依据（`laya` / `unlabeled`）、压缩判定与执行次数、平均判定耗时、判断状态被裁剪的次数 |
+| `/route reset` | 丢掉运行时覆盖，回到配置里的 `mode` |
+
+启动时插件往**服务日志**打两行启动事实——`ready (mode=…)` 与 `/route registered (…)`：静默挂载失败与正常工作否则无法区分（这两行也解释了为什么 `/route` 没生效时该先去看 `journalctl --user -u <service>`）。
+
 ## 判断状态为什么要自己拼
 
 Laya 给 `state` 的预算是 **english 320 / multilingual 768 token**，而它超预算时的截断策略是**保留开头、丢弃结尾**——对「看最新那条消息」的路由来说正好是反的。所以状态由插件确定性组装：**任务起点那条 + 最近若干条 + 一条省略标记**，中间被丢掉几条写进决策记录（`state.elided`），事后能判断某次错是不是因为信息被剪了。
@@ -46,6 +57,7 @@ Laya 给 `state` 的预算是 **english 320 / multilingual 768 token**，而它�
     mode: live                 # off | shadow | live
     lang: zh
     logFile: null              # null = 不记录；默认 $DSH_HOME/laya-router.jsonl
+    stateFile: null            # null = /route 的切换不持久化；默认 $DSH_HOME/laya-router-state.json
     policy:
       confidenceFloor: 0.5
       routes:
