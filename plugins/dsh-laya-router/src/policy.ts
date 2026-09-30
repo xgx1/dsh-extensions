@@ -70,7 +70,7 @@ export const DEFAULT_POLICY: PolicyConfig = {
   routes: {
     official: { provider: 'deepseek-official', model: 'deepseek-flash' },
     md: { provider: 'md', model: 'deepseek-ai/DeepSeek-V4.1-Flash' },
-    deepseek: { provider: 'sensenova', model: 'deepseek-v4.1-flash' },
+    deepseek: { provider: 'sensenova', model: 'deepseek-flash' },
     lite: { provider: 'sensenova', model: 'sensenova-6.8-flash-lite' },
   },
   table: [

@@ -46,3 +46,6 @@
 [submodule "vendor/dsh-evolve-modes"]
 	path = vendor/dsh-evolve-modes
 	url = https://github.com/xgx1/dsh-evolve-modes.git
+[submodule "vendor/billion-context"]
+	path = vendor/billion-context
+	url = https://github.com/xgx1/billion-context.git
