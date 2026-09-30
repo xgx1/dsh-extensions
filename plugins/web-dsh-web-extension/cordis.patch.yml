@@ -1,7 +1,0 @@
-# web-dsh-web-extension bundle patch: keeps the dual-face plugin row in the web
-# profile roster. The package is now an empty placeholder — the conversation
-# layout preference ships inside dsh itself — so both halves are no-op loaders.
-# The row is retained so existing profile installs need no edit.
-- insert:
-    - id: web-dsh-web-extension
-      name: web-dsh-web-extension
