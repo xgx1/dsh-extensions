@@ -70,4 +70,4 @@ pnpm typecheck && pnpm test && pnpm build
 
 ## 出处
 
-状态语义来自官方 `@deepseek-ai/dsh-client-ui-session`（`SessionStatus` / `SessionStatusSnapshot`），跳转 API 来自 `@deepseek-ai/dsh-client-ui-workspace`（`UiWorkspace.openSession`），标题与顺序来自 `@deepseek-ai/dsh-api-session-controller` 的 `sessions.list`；DOM 挂载模式沿用本机已装 `dsh-aionui-panel` 的 `waitForElement + createRoot` 先例；构建产物形态与 `web-dsh-web-extension` 一致（`__ModuleLoader__` + platform-module external）。
+状态语义来自官方 `@deepseek-ai/dsh-client-ui-session`（`SessionStatus` / `SessionStatusSnapshot`），跳转 API 来自 `@deepseek-ai/dsh-client-ui-workspace`（`UiWorkspace.openSession`），标题与顺序来自 `@deepseek-ai/dsh-api-session-controller` 的 `sessions.list`；DOM 挂载模式沿用本机已装 `dsh-aionui-panel` 的 `waitForElement + createRoot` 先例；构建产物形态为 `__ModuleLoader__` + platform-module external（同 `dsh-task-manager`）。
