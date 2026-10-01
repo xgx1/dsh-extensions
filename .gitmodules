@@ -43,3 +43,6 @@
 [submodule "vendor/billion-context"]
 	path = vendor/billion-context
 	url = https://github.com/xgx1/billion-context.git
+[submodule "skills/caveman"]
+	path = skills/caveman
+	url = https://github.com/xgx1/caveman.git
