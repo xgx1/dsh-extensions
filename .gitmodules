@@ -46,3 +46,6 @@
 [submodule "skills/caveman"]
 	path = skills/caveman
 	url = https://github.com/xgx1/caveman.git
+[submodule "vendor/OpenViking"]
+	path = vendor/OpenViking
+	url = https://github.com/volcengine/OpenViking.git
