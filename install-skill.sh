@@ -101,11 +101,23 @@ if [ -d "$DSH_EXT/skills" ]; then
 fi
 # 源 2：update-app/skills/<技能>
 [ -d "$UPDATE_APP/skills" ] && for sk in "$UPDATE_APP"/skills/*/; do add_skill "$sk"; done
-# 源 3：各项目 .dsh/skills/<技能>
-for proj in "$PROJECTS_ROOT"/*/; do
-  [ -d "${proj}.dsh/skills" ] || continue
-  for sk in "${proj}.dsh/skills"/*/; do add_skill "$sk"; done
-done
+# 源 3：任意深度项目下的 .dsh/skills/<技能>
+#   同样递归而非单层：`~/projects/*/.dsh/skills/` 这种一层 glob 会漏掉
+#   `ps-tool/anim/.dsh/skills/`（4 个 anime 技能长期靠手工软链）与
+#   `Other/_dsh_plugins_src/*/.dsh/skills/`——静默漏技能正是本脚本要消灭的失败模式。
+while IFS= read -r f; do
+  d="$(dirname "$f")"
+  case "$d" in
+    */tests/*|*/test/*|*/fixtures/*|*/examples/*|*/sample*) continue ;;
+  esac
+  add_skill "$d"
+done < <(
+  find "$PROJECTS_ROOT" -type d -name skills -path '*/.dsh/skills' \
+    -not -path '*/snapshots/*' -prune -print0 2>/dev/null \
+    | xargs -0 -r -I{} find {} -type f -name SKILL.md -print0 2>/dev/null \
+    | xargs -0 -r -I{} sh -c 'printf "%s\t%s\n" "$(printf "%s" "$1" | tr -cd / | wc -c)" "$1"' _ {} \
+    | sort -k1,1n -k2,2 | cut -f2-
+)
 
 if [ "${#names[@]}" -eq 0 ]; then echo "没有找到任何技能源，什么也没做。"; exit 0; fi
 
