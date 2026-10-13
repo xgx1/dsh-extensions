@@ -9,31 +9,31 @@ importers:
   .:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/vendor/cordis
+        specifier: link:../../deepseek-harness/vendor/cordis
         version: link:../../../deepseek-harness/vendor/cordis
       '@deepseek-ai/dsh-agent':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/core/agent
+        specifier: link:../../deepseek-harness/packages/core/agent
         version: link:../../../deepseek-harness/packages/core/agent
       '@deepseek-ai/dsh-agent-loop':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/core/agent-loop
+        specifier: link:../../deepseek-harness/packages/core/agent-loop
         version: link:../../../deepseek-harness/packages/core/agent-loop
       '@deepseek-ai/dsh-llm':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/llm/llm
+        specifier: link:../../deepseek-harness/packages/llm/llm
         version: link:../../../deepseek-harness/packages/llm/llm
       '@deepseek-ai/dsh-llm-retry':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/llm/llm-retry
+        specifier: link:../../deepseek-harness/packages/llm/llm-retry
         version: link:../../../deepseek-harness/packages/llm/llm-retry
       '@deepseek-ai/dsh-session':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/core/session
+        specifier: link:../../deepseek-harness/packages/core/session
         version: link:../../../deepseek-harness/packages/core/session
       '@deepseek-ai/dsh-session-projection':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/session/session-projection
+        specifier: link:../../deepseek-harness/packages/session/session-projection
         version: link:../../../deepseek-harness/packages/session/session-projection
       '@deepseek-ai/dsh-system-prompt':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/core/system-prompt
+        specifier: link:../../deepseek-harness/packages/core/system-prompt
         version: link:../../../deepseek-harness/packages/core/system-prompt
       '@deepseek-ai/dsh-tools':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness/packages/core/tools
+        specifier: link:../../deepseek-harness/packages/core/tools
         version: link:../../../deepseek-harness/packages/core/tools
       '@types/node':
         specifier: ^22.20.0
