@@ -9,16 +9,16 @@ importers:
   .:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness-dev/vendor/cordis
+        specifier: link:../../deepseek-harness-dev/vendor/cordis
         version: link:../../../deepseek-harness-dev/vendor/cordis
       '@deepseek-ai/dsh-agent':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness-dev/packages/core/agent
+        specifier: link:../../deepseek-harness-dev/packages/core/agent
         version: link:../../../deepseek-harness-dev/packages/core/agent
       '@deepseek-ai/dsh-commands':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness-dev/packages/interaction/commands
+        specifier: link:../../deepseek-harness-dev/packages/interaction/commands
         version: link:../../../deepseek-harness-dev/packages/interaction/commands
       '@deepseek-ai/dsh-llm':
-        specifier: link:/home/sx/projects/MyAI/deepseek-harness-dev/packages/llm/llm
+        specifier: link:../../deepseek-harness-dev/packages/llm/llm
         version: link:../../../deepseek-harness-dev/packages/llm/llm
       '@types/node':
         specifier: ^22.20.0

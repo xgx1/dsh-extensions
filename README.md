@@ -5,6 +5,7 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 ## 结构
 
 - `plugins/<名字>/` —— **自研插件**（独立 npm 包，`dsh plugin --profile web add link:<目录>` 安装），受本仓版本控制。
+  - **`devDependencies` 里指向 harness 检出的 `link:` 必须写相对路径**：`link:../../deepseek-harness/...`（生产检出）或 `link:../../deepseek-harness-dev/...`（开发 worktree），相对插件目录解析。本仓在 Linux 与 Windows 两台机器上共用，写绝对路径（`/home/sx/projects/MyAI/...` ↔ `C:/Users/Admin/Project/MyAI/...`）会让 `package.json` 与 `pnpm-lock.yaml` 里的 `specifier` 互相覆盖——谁先提交，另一台机器的依赖就指向不存在的目录。2026-10-14 已把当时 4 个带绝对路径的插件（`dsh-laya-router`、`dsh-llm-retry-schedule`、`dsh-sidebar-taskbar`、`dsh-task-manager`）统一改成相对路径。自检：插件目录里 `pnpm install --lockfile-only --frozen-lockfile` 通过，且改动文件的 `git diff` 里不出现任何平台路径。
 - `skills/<上游仓库名>/` —— **技能分组仓**：一个上游仓库一组，各自是独立 git 仓、登记为本仓的 submodule。有上游的是 `xgx1` 下的公开 fork，无上游的是自建仓。分组理由与 fork 策略见 `../docs/adr/0006`。
   - **组内目录与上游一一对应**（2026-09-13 起）：fork 的树 = 上游最新树 + 我们的本地改动移植到对应文件。上游把技能放在 `skills/<名>/`、`.agents/skills/<名>/`、`skills/engineering/<名>/`、`plugins/<插件>/skills/<名>/`……**本仓不再把技能拍平到组根**；我们的分组 README 以 `README.dsh-local.md` 存在（避免覆盖上游 README）。
 - `vendor/<名字>/` —— **第三方上游克隆**（生产 `link:` 目标），同样是 submodule，远端指各自上游。
