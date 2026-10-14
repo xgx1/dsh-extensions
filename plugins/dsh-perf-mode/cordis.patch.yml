@@ -1,0 +1,8 @@
+# dsh-perf-mode bundle patch: inserts the plugin row into the web profile
+# roster. The host half (exports ".") is an empty loader entry; the `dsh.client`
+# declaration in package.json makes the browser half (exports "./client") load
+# in the web GUI, where it injects one global stylesheet that turns off
+# animations, transitions, and backdrop blur.
+- insert:
+    - id: dsh-perf-mode
+      name: 'dsh-perf-mode'

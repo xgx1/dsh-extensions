@@ -58,6 +58,7 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 
 - [`dsh-sidebar-taskbar`](plugins/dsh-sidebar-taskbar/README.md) —— 侧边栏会话任务栏：工作区上方显示运行结束（绿）/运行中（红）/等待回复（琥珀）会话，点击跳转；折叠自动隐藏。数据复用官方 `sessions.list` + `uiSession.sessionStatus`，零官方源码修改。
 - [`dsh-task-manager`](plugins/dsh-task-manager/README.md) —— 任务管理器：侧边栏标题下方「任务管理 / Task Commander」按钮，点击把中间主区域（AI 输入输出面板）**整区切换**为任务面板（官方 `conversation.view` 视图环，非右侧浮层），面板左上角「创建新的任务」按钮；header 视图标签一键切回对话。纯 profile-bundle 覆盖层，零官方源码修改。
+- [`dsh-perf-mode`](plugins/dsh-perf-mode/README.md) —— 关掉 Web GUI 的全部动画、过渡与毛玻璃：一份全局样式表，`animation`/`transition`/`scroll-behavior` 归零，`--dsw-menu-backdrop-filter` 置 `none` 并强制 `backdrop-filter: none`。纯 profile-bundle 覆盖层，零官方源码修改。
 
 ### 元技能
 

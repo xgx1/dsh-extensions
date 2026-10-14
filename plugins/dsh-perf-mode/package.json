@@ -1,0 +1,29 @@
+{
+  "name": "dsh-perf-mode",
+  "version": "0.1.0",
+  "description": "Disables CSS animations, transitions, and backdrop blur in the DSH web GUI: a pure profile-bundle overlay with zero dsh source changes",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ]
+}
