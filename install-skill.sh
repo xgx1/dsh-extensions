@@ -32,7 +32,11 @@ DSH_EXT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_ROOT="${HOME}/.dsh/skills"
 BACKUP_ROOT="${HOME}/.dsh/skill-backups"
 UPDATE_APP="${HOME}/projects/update-app"
-PROJECTS_ROOT="${HOME}/projects"
+# PROJECTS_ROOT 必须是**物理路径**：Windows 上 ~/projects 是指向 ~/Project 的 junction，
+# MSYS 的 find 把 junction 当成符号链接、默认不跟随，于是源 3「项目专用技能」
+# 会一个都扫不到——脚本看着跑成功，项目技能却仍是运行时里的旧副本（静默漂移）。
+# pwd -P 解掉 junction；Linux 上等价于原路径，无副作用。
+PROJECTS_ROOT="$(cd "${HOME}/projects" 2>/dev/null && pwd -P || echo "${HOME}/projects")"
 
 dry_run=0 force=0 list_only=0
 for arg in "$@"; do
