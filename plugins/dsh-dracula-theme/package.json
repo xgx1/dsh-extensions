@@ -1,0 +1,36 @@
+{
+  "name": "dsh-dracula-theme",
+  "version": "0.1.0",
+  "description": "Dracula theme for the DSH web GUI: registers a `dracula` theme (Dracula official palette, code blocks via shiki css-variables) on the client theme service and selects it — a pure profile-bundle overlay, zero dsh source changes",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}

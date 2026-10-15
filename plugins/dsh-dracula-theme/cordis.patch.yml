@@ -1,0 +1,7 @@
+# dsh-dracula-theme bundle patch: inserts the plugin row into the web profile
+# roster. The host half (exports ".") is an empty loader entry; the `dsh.client`
+# declaration in package.json makes the browser half (exports "./client") load
+# in the web GUI, where it registers the `dracula` theme and selects it.
+- insert:
+    - id: dsh-dracula-theme
+      name: 'dsh-dracula-theme'
