@@ -26,6 +26,14 @@
 #   ./install-skill.sh --force     # 允许覆盖已存在的真实目录（先备份）
 #   ./install-skill.sh --list      # 列出受管技能及其来源，不安装
 #
+# Windows（Git Bash）：
+#   MSYS=winsymlinks:nativestrict "C:\Program Files\Git\bin\bash.exe" -lc \
+#     'cd "$HOME/projects/MyAI/dsh-extensions" && ./install-skill.sh --force'
+#   ⚠️ 必须带 MSYS=winsymlinks:nativestrict：否则 MSYS 的 `ln -s` **静默复制**而不是建符号链接，
+#      运行时目录又会塞满副本（2026-10-15 实测：255 个技能全是副本）。建链接需要管理员
+#      或开发者模式。WSL 的 bash 不要用（$HOME 与 /mnt/c 语义不同，会创建 WSL 侧链接）。
+#   ⚠️ 覆盖真实目录是 `mv` 到 ~/.dsh/skill-backups/ 后再建链接：备份与运行时同卷，是改名不是拷贝。
+#
 set -euo pipefail
 
 DSH_EXT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
