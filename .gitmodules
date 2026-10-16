@@ -56,3 +56,6 @@
 	path = vendor/dsh-ops
 	url = https://github.com/xgx1/dsh-ops.git
 	branch = main
+[submodule "vendor/dsh-blender-plugin"]
+	path = vendor/dsh-blender-plugin
+	url = https://github.com/sixtysevenlf/dsh-blender-plugin.git
