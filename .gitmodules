@@ -52,3 +52,7 @@
 [submodule "skills/rea"]
 	path = skills/rea
 	url = https://github.com/xgx1/rea.git
+[submodule "vendor/dsh-ops"]
+	path = vendor/dsh-ops
+	url = https://github.com/xgx1/dsh-ops.git
+	branch = main
