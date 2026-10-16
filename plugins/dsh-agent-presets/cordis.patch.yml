@@ -88,11 +88,16 @@
           # host-plane too.
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
-            disabled: !!js process.platform === 'win32'
+            # 2026-10-16 用户要求：命令执行统一走 dsh-ops（ops_bash），关掉宿主自带 bash，
+            # 免得同一执行器有两条工具路径。原先只在 Windows 关，现两平台都关。
+            disabled: true
 
           - id: tool-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
-            disabled: !!js process.platform !== 'win32'
+            # 2026-10-16 用户要求：Windows 上也只留 dsh-ops 的 PowerShell 7，宿主自带
+            # pwsh 关掉；Linux 本来就是关的。宿主 pwsh-sandbox 另在 web profile patch
+            # 里 disabled:true，不在本文件。
+            disabled: true
 
           # ── filesystem ──────────────────────────────────────────────────────────────
 
@@ -118,6 +123,10 @@
           # chooses is whether its agent can collect and stop background work at all.
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+            # 2026-10-16 用户要求：后台任务统一走 dsh-ops（ops_run_background /
+            # ops_job_output / ops_job_list / ops_job_kill），宿主 job_* 三件套关掉。
+            # 任务 REGISTRY 仍在宿主，上面注释描述的可用性语义不变。
+            disabled: true
 
           # ── skills ──────────────────────────────────────────────────────────────────
 
@@ -231,6 +240,11 @@
 
               - id: tool-result-pruner
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                # 2026-10-16 用户要求：长工具结果只留一层（billion-context 的
+                # ccr-store / acp-stored 占位）。pruner 按字符算（8192 字符 ≈ 2–3k
+                # token），门槛低于 bili 的存储条件；落在两者之间的历史结果会被就地
+                # 砍掉且没有可检索原件。关掉它，完整性交给 bili。
+                disabled: true
                 config:
                   thresholdChars: 8192
                   headChars: 4096
@@ -261,9 +275,17 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
+                # 2026-10-16 用户要求（E1）：本行与下一行注册的 send_message /
+                # list_agents 与 agent-team（@deepseek-ai/dsh-experimental-tool-agent-team）
+                # 同名——不同 scope 会静默遮蔽，实际生效的是 agent-team 版，这两条
+                # 是永不生效的死注册。agent-team-profile bundle 本来就在宿主面把这两行
+                # 连同 tool-subagent/fork 一起关掉换成 Team 工具，此处对齐。
+                # 注意：tool-subagent / tool-subagent-fork 保留（名字不冲突，且在用）。
+                disabled: true
 
               - id: tool-subagent-list-agents
                 name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+                disabled: true
 
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
@@ -452,11 +474,16 @@
           # host-plane too.
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
-            disabled: !!js process.platform === 'win32'
+            # 2026-10-16 用户要求：命令执行统一走 dsh-ops（ops_bash），关掉宿主自带 bash，
+            # 免得同一执行器有两条工具路径。原先只在 Windows 关，现两平台都关。
+            disabled: true
 
           - id: tool-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
-            disabled: !!js process.platform !== 'win32'
+            # 2026-10-16 用户要求：Windows 上也只留 dsh-ops 的 PowerShell 7，宿主自带
+            # pwsh 关掉；Linux 本来就是关的。宿主 pwsh-sandbox 另在 web profile patch
+            # 里 disabled:true，不在本文件。
+            disabled: true
 
           # ── filesystem ──────────────────────────────────────────────────────────────
 
@@ -482,6 +509,10 @@
           # chooses is whether its agent can collect and stop background work at all.
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+            # 2026-10-16 用户要求：后台任务统一走 dsh-ops（ops_run_background /
+            # ops_job_output / ops_job_list / ops_job_kill），宿主 job_* 三件套关掉。
+            # 任务 REGISTRY 仍在宿主，上面注释描述的可用性语义不变。
+            disabled: true
 
           # ── skills ──────────────────────────────────────────────────────────────────
 
@@ -582,6 +613,11 @@
 
               - id: tool-result-pruner
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                # 2026-10-16 用户要求：长工具结果只留一层（billion-context 的
+                # ccr-store / acp-stored 占位）。pruner 按字符算（8192 字符 ≈ 2–3k
+                # token），门槛低于 bili 的存储条件；落在两者之间的历史结果会被就地
+                # 砍掉且没有可检索原件。关掉它，完整性交给 bili。
+                disabled: true
                 config:
                   thresholdChars: 8192
                   headChars: 4096
@@ -612,9 +648,17 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
+                # 2026-10-16 用户要求（E1）：本行与下一行注册的 send_message /
+                # list_agents 与 agent-team（@deepseek-ai/dsh-experimental-tool-agent-team）
+                # 同名——不同 scope 会静默遮蔽，实际生效的是 agent-team 版，这两条
+                # 是永不生效的死注册。agent-team-profile bundle 本来就在宿主面把这两行
+                # 连同 tool-subagent/fork 一起关掉换成 Team 工具，此处对齐。
+                # 注意：tool-subagent / tool-subagent-fork 保留（名字不冲突，且在用）。
+                disabled: true
 
               - id: tool-subagent-list-agents
                 name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+                disabled: true
 
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
