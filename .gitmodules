@@ -48,7 +48,7 @@
 	url = https://github.com/xgx1/caveman.git
 [submodule "vendor/OpenViking"]
 	path = vendor/OpenViking
-	url = https://github.com/volcengine/OpenViking.git
+	url = https://github.com/xgx1/OpenViking.git
 [submodule "skills/rea"]
 	path = skills/rea
 	url = https://github.com/xgx1/rea.git
