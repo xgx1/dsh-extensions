@@ -145,7 +145,10 @@ for i in "${!names[@]}"; do
   name="${names[$i]}"; src="${paths[$i]}"; target="${SKILLS_ROOT}/${name}"
   if [ -L "$target" ]; then
     current="$(readlink -f "$target" || true)"
-    if [ "$current" = "$src" ]; then
+    # 两边都取物理路径再比：Windows 上 ~/projects 是指向 ~/Project 的 junction，
+    # 比字面量会每次都判成漂移、反复重指（且 ln 在某些环境直接失败）。
+    srccanon="$(cd "$(dirname "$src")" 2>/dev/null && pwd -P)/$(basename "$src")"
+    if [ "$current" = "$src" ] || { [ -n "$current" ] && [ "$current" = "$srccanon" ]; }; then
       :
     else
       echo "重指      ${name}  ${current:-<失效>}  ->  ${src}"
