@@ -62,3 +62,6 @@
 [submodule "skills/dsh-skill-blender-modeling"]
 	path = skills/dsh-skill-blender-modeling
 	url = https://github.com/xgx1/dsh-skill-blender-modeling.git
+[submodule "vendor/dsh-our-free-model"]
+	path = vendor/dsh-our-free-model
+	url = https://github.com/xgx1/dsh-our-free-model.git
