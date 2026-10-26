@@ -46,7 +46,7 @@ DeepSeek Harness（DSH）个人扩展集合。遵循极简原则：**一个功�
 | `obra-superpowers` | [obra/superpowers](https://github.com/obra/superpowers) | 14 |
 | `unrealxu-ue5-skills` | [UnrealXu/UnrealEngine5-Skills](https://github.com/UnrealXu/UnrealEngine5-Skills) | 11 |
 | `rider-skills` / `dietrichgebert-ponytail` | JetBrains / DietrichGebert 的 fork | 各 6 |
-| `epicgames-ue-skills` / `clawic-marketplace` | EpicGames 官方 / clawic | 各 3 |
+| `epicgames-ue-skills` | EpicGames 官方 | 3 |
 
 **归属规则**：**上游没有的技能不进 fork，放自建仓**（`self-ue` = UE 项目实践，`self-dsh` = 通用开发流程 + .NET/MCP 工具 + DSH，`self-ops` = 本机运维 CLI）。这样每个 fork 都干净——**文件数 = 上游 + 1**（那 1 个是 `README.dsh-local.md`），`git diff upstream/<分支>` 里只剩「本机改写了哪些文件的内容」。
 
