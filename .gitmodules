@@ -31,9 +31,6 @@
 [submodule "skills/unrealxu-ue5-skills"]
 	path = skills/unrealxu-ue5-skills
 	url = https://github.com/xgx1/unrealxu-ue5-skills.git
-[submodule "vendor/dsh-genui"]
-	path = vendor/dsh-genui
-	url = https://github.com/omdsh-dev/dsh-genui.git
 [submodule "skills/dietrichgebert-ponytail"]
 	path = skills/dietrichgebert-ponytail
 	url = https://github.com/xgx1/ponytail.git
