@@ -16,7 +16,6 @@ export interface ManagedQuestionItem {
   header?: string
   /** 可选项标签；有选项时答复应当是其中之一。 */
   options?: string[]
-  multiSelect?: boolean
 }
 
 /** 一张任务卡片。 */
@@ -90,7 +89,6 @@ function questionFor(
           question,
           ...(header === undefined ? {} : { header }),
           ...(options === undefined || options.length === 0 ? {} : { options }),
-          ...(typeof item['multi_select'] === 'boolean' ? { multiSelect: item['multi_select'] } : {}),
         })
       }
     }
@@ -141,6 +139,32 @@ export function readManagedCards(state: unknown): ManagedView {
   return { cards }
 }
 
+/**
+ * 路由过来的正文是 session-manager 的 JSON 信封（`{type, outcome, summary}`）。
+ * 文档是给人看的，能拆就拆成「本轮结束（completed）」+ 摘要；拆不动就原样引用。
+ * @param body - 一条路由消息的正文。
+ * @returns 适合放进 Markdown 的正文。
+ */
+function formatReportBody(body: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+  if (!isRecord(parsed)) return body
+  const summary = text(parsed['summary'])
+  if (summary === undefined) return body
+  const kind = text(parsed['type'])
+  const outcome = text(parsed['outcome'])
+  const headline = kind === 'turn-ended'
+    ? `本轮结束${outcome === undefined ? '' : `（${outcome}）`}`
+    : kind === undefined ? '' : kind
+  return headline === '' ? summary : `**${headline}**
+
+${summary}`
+}
+
 /** 管理会话日志里一条已投递给管理端的消息（只取报告需要的字段）。 */
 interface ReportEventLike {
   type?: unknown
@@ -174,7 +198,7 @@ export function buildManagedReportMarkdown(card: ManagedCard, events: readonly u
       .trim()
     if (body !== '') reports.push(body)
   }
-  const tail = reports.slice(-REPORT_LIMIT)
+  const tail = reports.slice(-REPORT_LIMIT).map(formatReportBody)
   const lines: string[] = [
     `# ${card.title}`,
     '',

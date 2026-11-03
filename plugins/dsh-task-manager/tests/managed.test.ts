@@ -72,7 +72,7 @@ describe('readManagedCards', () => {
     const pending = cards.find((card) => card.workerId === 'session-b')
     expect(pending?.question?.id).toBe('q1')
     expect(pending?.question?.items).toEqual([
-      { id: 'choice', question: '用方案 A 还是 B？', header: '选择', options: ['A', 'B'], multiSelect: false },
+      { id: 'choice', question: '用方案 A 还是 B？', header: '选择', options: ['A', 'B'] },
     ])
     expect(cards.find((card) => card.workerId === 'session-a')?.question).toBeUndefined()
   })
@@ -109,6 +109,9 @@ describe('buildManagedReportMarkdown', () => {
     expect(markdown).toContain('已改完 3 个文件')
     expect(markdown).not.toContain('别的工作的汇报')
     expect(markdown).not.toContain('不是用户消息')
+    // 路由信封被拆开，人看到的是摘要而不是原始 JSON
+    expect(markdown).not.toContain('"summary"')
+    expect(markdown).toContain('本轮结束')
   })
 
   it('states the absence honestly when no report was routed yet', () => {

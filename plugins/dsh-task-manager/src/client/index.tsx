@@ -104,7 +104,6 @@ interface ManagedQuestionItem {
   question: string
   header?: string
   options?: string[]
-  multiSelect?: boolean
 }
 interface ManagedCard {
   workerId: string

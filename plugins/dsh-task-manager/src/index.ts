@@ -239,9 +239,12 @@ export function apply(ctx: Context, config?: Config): void {
   interface StorageDomainLike {
     get(name: string): { global: { get(): unknown } } | undefined
   }
-  /** 会话日志读面。 */
+  /**
+   * 会话日志读面。用 readSession（带 data 的完整事件）而不是 listEvents：
+   * 后者只回 seq/type/time 元数据，正文与 source 都在 data 里，读了也筛不出来。
+   */
   interface SessionQueryLike {
-    listEvents(sessionId: string): Promise<readonly unknown[]>
+    readSession(sessionId: string): Promise<{ events: readonly unknown[] }>
   }
 
   /** 读一次 `session_manager` 的 global 状态；域未打开时返回 undefined。 */
@@ -494,7 +497,9 @@ export function apply(ctx: Context, config?: Config): void {
           status: 'in-progress',
         }
         const sessionQuery = ctx.get('sessionQuery') as SessionQueryLike | undefined
-        const events = sessionQuery === undefined ? [] : await sessionQuery.listEvents(managerSessionId)
+        const events = sessionQuery === undefined
+          ? []
+          : (await sessionQuery.readSession(managerSessionId)).events
         res.writeHead(200, {
           'content-type': 'text/markdown; charset=utf-8',
           'cache-control': 'no-store',
