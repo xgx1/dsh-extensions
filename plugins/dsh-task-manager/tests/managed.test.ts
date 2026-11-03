@@ -2,7 +2,7 @@
  * 纳管视图：把 session-manager 的持久化状态映射成任务卡片，并把汇报折叠成 Markdown。
  */
 import { describe, expect, it } from 'vitest'
-import { buildManagedReportMarkdown, readManagedCards } from '../src/managed.ts'
+import { applyLatestReports, buildManagedReportMarkdown, readManagedCards } from '../src/managed.ts'
 
 /** One realistic slice of the `session_manager` global state. */
 function state(): unknown {
@@ -55,14 +55,15 @@ function state(): unknown {
 describe('readManagedCards', () => {
   it('maps links to cards and drops detached conversations', () => {
     const { cards } = readManagedCards(state())
-    expect(cards.map((card) => card.workerId)).toEqual(['session-b', 'session-c', 'session-a'])
+    expect(cards.map((card) => card.workerId)).toEqual(['session-c', 'session-a', 'session-b'])
     expect(cards.every((card) => card.workerId !== 'session-d')).toBe(true)
   })
 
-  it('derives status: pending question → waiting-reply, paused → paused, else in-progress', () => {
+  it('keeps the pending question as a count instead of a blocking status', () => {
     const { cards } = readManagedCards(state())
     const byId = new Map(cards.map((card) => [card.workerId, card]))
-    expect(byId.get('session-b')?.status).toBe('waiting-reply')
+    expect(byId.get('session-b')?.status).toBe('in-progress')
+    expect(byId.get('session-b')?.pendingQuestions).toBe(1)
     expect(byId.get('session-c')?.status).toBe('paused')
     expect(byId.get('session-a')?.status).toBe('in-progress')
   })
@@ -90,10 +91,66 @@ describe('readManagedCards', () => {
   })
 })
 
+/** 管理会话日志里一条工人回报（`manager_report` 路由过来的信封）。 */
+function report(workerId: string, status: string, summary = 'x'): unknown {
+  return {
+    type: 'user/message',
+    data: {
+      source: { kind: 'session-manager', workerSessionId: workerId },
+      content: [{ type: 'text', text: JSON.stringify({ type: 'explicit-report', workerSessionId: workerId, status, summary }) }],
+    },
+  }
+}
+
+/** 一轮自动结束（`turn-ended`）；它不是完成。 */
+function turnEnd(workerId: string): unknown {
+  return {
+    type: 'user/message',
+    data: {
+      source: { kind: 'session-manager', workerSessionId: workerId },
+      content: [{ type: 'text', text: JSON.stringify({ type: 'turn-ended', workerSessionId: workerId, outcome: 'completed', taskCompleted: false, summary: '本轮结束' }) }],
+    },
+  }
+}
+
+describe('applyLatestReports', () => {
+  const cards = (): ReturnType<typeof readManagedCards>['cards'] => readManagedCards(state()).cards
+
+  it('marks an explicit completed report as done', () => {
+    const next = applyLatestReports(cards(), [report('session-a', 'completed')])
+    expect(next.find((card) => card.workerId === 'session-a')?.status).toBe('done')
+  })
+
+  it('marks a blocked report as problem and keeps progress as in-progress', () => {
+    const blocked = applyLatestReports(cards(), [report('session-a', 'blocked')])
+    expect(blocked.find((card) => card.workerId === 'session-a')?.status).toBe('problem')
+    const progress = applyLatestReports(cards(), [report('session-a', 'progress')])
+    expect(progress.find((card) => card.workerId === 'session-a')?.status).toBe('in-progress')
+  })
+
+  it('lets the latest report win', () => {
+    const next = applyLatestReports(cards(), [report('session-a', 'completed'), report('session-a', 'progress')])
+    expect(next.find((card) => card.workerId === 'session-a')?.status).toBe('in-progress')
+  })
+
+  it('never treats an ended turn as completion', () => {
+    const next = applyLatestReports(cards(), [turnEnd('session-a')])
+    const card = next.find((item) => item.workerId === 'session-a')
+    expect(card?.status).toBe('in-progress')
+    expect(card?.lastTurnOutcome).toBe('completed')
+  })
+
+  it('applies a report to a card that still has a question, and keeps a paused link untouched', () => {
+    const next = applyLatestReports(cards(), [report('session-b', 'completed'), report('session-c', 'completed')])
+    expect(next.find((card) => card.workerId === 'session-b')?.status).toBe('done')
+    expect(next.find((card) => card.workerId === 'session-c')?.status).toBe('paused')
+  })
+})
+
 describe('buildManagedReportMarkdown', () => {
   const card = {
     workerId: 'session-b', managerId: 'session-m', workspaceId: 'ws', preset: 'js',
-    title: '整理任务清单', status: 'waiting-reply' as const,
+    title: '整理任务清单', status: 'in-progress' as const,
   }
 
   it('renders the card header and the routed reports of that worker', () => {

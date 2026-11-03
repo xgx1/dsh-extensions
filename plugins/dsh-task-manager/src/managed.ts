@@ -6,8 +6,11 @@
  * 解析不出来就退化成「不可用」，绝不让面板崩掉（旧任务列表此时照常显示）。
  */
 
-/** 卡片状态：只保留能直接从纳管关系派生出来的三种。 */
-export type ManagedStatus = 'in-progress' | 'waiting-reply' | 'paused'
+/**
+ * 卡片状态。关系本身能给出「等待回复 / 已暂停」；「已完成 / 发生问题」来自
+ * 工作对话自己发的 `manager_report`——一轮自动结束**不算**完成。
+ */
+export type ManagedStatus = 'in-progress' | 'done' | 'problem' | 'paused'
 
 /** 待答问题的一项（来自工作对话原生提问的原始条目）。 */
 export interface ManagedQuestionItem {
@@ -26,8 +29,12 @@ export interface ManagedCard {
   preset: string
   title: string
   status: ManagedStatus
-  /** 等待回复时携带的问题（最近一条 pending）。 */
+  /** 待你答复的问题（最近一条 pending）；它不改变状态，只提示有几条在等你。 */
   question?: { id: string; items: ManagedQuestionItem[] }
+  /** 待答问题条数，卡片上的「待你答复 · N」。 */
+  pendingQuestions?: number
+  /** 最近一轮的结束原因；仅作提示——一轮结束不代表任务完成。 */
+  lastTurnOutcome?: string
 }
 
 /** 视图结果：域缺失时 `unavailable` 为 true，客户端据此回落到旧任务列表。 */
@@ -99,7 +106,7 @@ function questionFor(
   return undefined
 }
 
-const STATUS_ORDER: Record<ManagedStatus, number> = { 'waiting-reply': 0, paused: 1, 'in-progress': 2 }
+const STATUS_ORDER: Record<ManagedStatus, number> = { paused: 0, problem: 1, 'in-progress': 2, done: 3 }
 
 /**
  * 把 `session_manager` 的 global 状态映射成卡片。
@@ -121,9 +128,8 @@ export function readManagedCards(state: unknown): ManagedView {
     if (workerId === undefined || managerId === undefined) continue
     if (value['detached'] === true) continue
     const question = questionFor(workerId, questions)
-    const status: ManagedStatus = question !== undefined
-      ? 'waiting-reply'
-      : value['paused'] === true ? 'paused' : 'in-progress'
+    // 提问不再阻塞任何东西（ADR-0012）：它只是待办提示，不是任务状态。
+    const status: ManagedStatus = value['paused'] === true ? 'paused' : 'in-progress'
     cards.push({
       workerId,
       managerId,
@@ -131,7 +137,7 @@ export function readManagedCards(state: unknown): ManagedView {
       preset: text(value['agentPreset']) ?? '',
       title: titleFor(workerId, creations),
       status,
-      ...(question === undefined ? {} : { question }),
+      ...(question === undefined ? {} : { question, pendingQuestions: question.items.length }),
     })
   }
   cards.sort((left, right) => STATUS_ORDER[left.status] - STATUS_ORDER[right.status]
@@ -163,6 +169,73 @@ function formatReportBody(body: string): string {
   return headline === '' ? summary : `**${headline}**
 
 ${summary}`
+}
+
+/** 一条已投递给管理端的消息（只取需要的字段）。 */
+interface RoutedEventLike {
+  type?: unknown
+  data?: {
+    source?: { kind?: unknown; workerSessionId?: unknown }
+    content?: unknown
+  }
+}
+
+/** 取出一条路由消息的正文。 */
+function bodyOf(event: RoutedEventLike): string | undefined {
+  const content = event.data?.content
+  if (!Array.isArray(content)) return undefined
+  const joined = content
+    .map((block) => (isRecord(block) ? text(block['text']) : undefined))
+    .filter((part): part is string => part !== undefined)
+    .join('\n')
+    .trim()
+  return joined === '' ? undefined : joined
+}
+
+/**
+ * 用工作对话自己的显式回报覆盖卡片状态。
+ * 只看 `explicit-report`：`turn-ended` 是「这一轮结束」，不是完成（设计红线）。
+ * @param cards - 从纳管关系派生出来的卡片。
+ * @param events - 管理会话日志里的完整事件（可来自多个管理对话）。
+ * @returns 新数组；等待回复与已暂停的卡片不受影响。
+ */
+export function applyLatestReports(cards: readonly ManagedCard[], events: readonly unknown[]): ManagedCard[] {
+  const latest = new Map<string, 'progress' | 'completed' | 'blocked'>()
+  const lastTurn = new Map<string, string>()
+  for (const event of events as readonly RoutedEventLike[]) {
+    if (event?.type !== 'user/message') continue
+    const source = event.data?.source
+    if (source?.kind !== 'session-manager') continue
+    const workerId = text(source.workerSessionId)
+    if (workerId === undefined) continue
+    const body = bodyOf(event)
+    if (body === undefined) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(body)
+    } catch {
+      continue
+    }
+    if (!isRecord(parsed)) continue
+    if (parsed['type'] === 'turn-ended') {
+      const outcome = text(parsed['outcome'])
+      if (outcome !== undefined) lastTurn.set(workerId, outcome)
+      continue
+    }
+    if (parsed['type'] !== 'explicit-report') continue
+    const status = parsed['status']
+    if (status === 'progress' || status === 'completed' || status === 'blocked') latest.set(workerId, status)
+  }
+  if (latest.size === 0 && lastTurn.size === 0) return [...cards]
+  return cards.map((card) => {
+    const outcome = lastTurn.get(card.workerId)
+    const next: ManagedCard = outcome === undefined ? card : { ...card, lastTurnOutcome: outcome }
+    if (card.status === 'paused') return next
+    const reported = latest.get(card.workerId)
+    if (reported === undefined) return next
+    const status: ManagedStatus = reported === 'completed' ? 'done' : reported === 'blocked' ? 'problem' : 'in-progress'
+    return { ...next, status }
+  })
 }
 
 /** 管理会话日志里一条已投递给管理端的消息（只取报告需要的字段）。 */

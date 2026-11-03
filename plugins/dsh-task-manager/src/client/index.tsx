@@ -98,7 +98,7 @@ interface Task {
   updatedAt: number
 }
 /** 纳管对话的卡片（来自 session-manager 的状态派生，不是本插件自己存的任务）。 */
-type ManagedStatus = 'in-progress' | 'waiting-reply' | 'paused'
+type ManagedStatus = 'in-progress' | 'done' | 'problem' | 'paused'
 interface ManagedQuestionItem {
   id: string
   question: string
@@ -113,6 +113,10 @@ interface ManagedCard {
   title: string
   status: ManagedStatus
   question?: { id: string; items: ManagedQuestionItem[] }
+  /** 最近一轮的结束原因；仅作提示，一轮结束不代表任务完成。 */
+  lastTurnOutcome?: string
+  /** 待你答复的问题条数；提问不阻塞工作，所以它只是个提示。 */
+  pendingQuestions?: number
 }
 interface ManagedView {
   cards: ManagedCard[]
@@ -183,6 +187,7 @@ const dicts: Record<string, Record<string, string>> = {
     needsFinalReviewHint: 'When enabled, a captain’s done report is clamped to “Waiting for check” until you close the task after your final review.',
     openConversation: 'Open conversation',
     statusPaused: 'Paused',
+    managedTurnEnded: 'Turn ended',
     managedSection: 'Managed conversations',
     managedUnavailable: 'The management plugin is not running here; showing the local task list.',
     managedQuestion: 'Waiting for your answer',
@@ -244,6 +249,7 @@ const dicts: Record<string, Record<string, string>> = {
     needsFinalReviewHint: '勾选后，队长完成回报将被钳制为「等待检查」，待你终审后方可关单。',
     openConversation: '打开对话',
     statusPaused: '已暂停',
+    managedTurnEnded: '本轮已结束',
     managedSection: '纳管对话',
     managedUnavailable: '管理插件未在此实例运行，当前显示本地任务列表。',
     managedQuestion: '等待你的答复',
@@ -849,12 +855,18 @@ function ManagedReplyBox(props: { card: ManagedCard; onSent: () => void }): Reac
 
 /** 纳管对话列表：每张卡片一个真实的工作对话。 */
 function ManagedList(props: { cards: ManagedCard[]; onReplied: () => void }): ReactElement {
-  const statusLabelOf = (status: ManagedStatus): string => status === 'paused'
-    ? translate('statusPaused')
-    : status === 'waiting-reply' ? translate('statusWaitingReply') : translate('statusInProgress')
-  const statusClassOf = (status: ManagedStatus): string => status === 'paused'
-    ? 'dsh-taskm-badge-muted'
-    : status === 'waiting-reply' ? 'dsh-taskm-badge-wait' : 'dsh-taskm-badge-active'
+  const statusLabelOf = (status: ManagedStatus): string => {
+    if (status === 'paused') return translate('statusPaused')
+    if (status === 'done') return translate('statusDone')
+    if (status === 'problem') return translate('statusProblem')
+    return translate('statusInProgress')
+  }
+  const statusClassOf = (status: ManagedStatus): string => {
+    if (status === 'paused') return 'dsh-taskm-badge-muted'
+    if (status === 'done') return 'dsh-taskm-badge-ok'
+    if (status === 'problem') return 'dsh-taskm-badge-danger'
+    return 'dsh-taskm-badge-active'
+  }
   return (
     <div className="dsh-taskm-list">
       {props.cards.map((card) => (
@@ -862,10 +874,20 @@ function ManagedList(props: { cards: ManagedCard[]; onReplied: () => void }): Re
           <div className="dsh-taskm-row">
             <div className="dsh-taskm-row-head">
               <span className="dsh-taskm-row-title" title={card.title}>{card.title}</span>
+              {card.pendingQuestions !== undefined && card.pendingQuestions > 0 ? (
+                <span className="dsh-taskm-pill dsh-taskm-badge-wait">
+                  {translate('managedQuestion')} · {card.pendingQuestions}
+                </span>
+              ) : null}
               <span className={`dsh-taskm-pill ${statusClassOf(card.status)}`}>{statusLabelOf(card.status)}</span>
             </div>
             {card.question !== undefined && card.question.items[0] !== undefined ? (
               <div className="dsh-taskm-row-question">{card.question.items[0].question}</div>
+            ) : null}
+            {card.lastTurnOutcome !== undefined && card.status === 'in-progress' ? (
+              <div className="dsh-taskm-hint">
+                {translate('managedTurnEnded')} · {card.lastTurnOutcome}
+              </div>
             ) : null}
           </div>
           <div className="dsh-taskm-item-foot">
@@ -882,7 +904,7 @@ function ManagedList(props: { cards: ManagedCard[]; onReplied: () => void }): Re
               {translate('executionReport')}
             </a>
           </div>
-          {card.status === 'waiting-reply'
+          {card.pendingQuestions !== undefined && card.pendingQuestions > 0
             ? <ManagedReplyBox card={card} onSent={props.onReplied} />
             : null}
         </article>

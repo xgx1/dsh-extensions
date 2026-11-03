@@ -27,7 +27,7 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { STATUSES, OrchestratorError, type ConversationSummary, type RunMode, type Status, type TaskRecord } from './records.ts'
-import { buildManagedReportMarkdown, readManagedCards, type ManagedCard } from './managed.ts'
+import { applyLatestReports, buildManagedReportMarkdown, readManagedCards, type ManagedCard } from './managed.ts'
 import { deliverHumanMessage, type ReplyRuntime } from './managed-reply.ts'
 import { CaptainStore, TaskStore } from './stores.ts'
 import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
@@ -436,9 +436,24 @@ export function apply(ctx: Context, config?: Config): void {
     ctx.effect(() => webServer.register({
       kind: 'exact',
       path: '/plugins/dsh-task-manager/managed',
-      handler: (_req, res) => {
+      handler: async (_req, res) => {
         try {
-          json(res, 200, readManagedCards(readManagedState()))
+          const view = readManagedCards(readManagedState())
+          const sessionQuery = ctx.get('sessionQuery') as SessionQueryLike | undefined
+          if (sessionQuery === undefined || view.cards.length === 0) {
+            json(res, 200, view)
+            return
+          }
+          // 状态里的「已完成 / 发生问题」只能来自工作对话自己的显式回报。
+          const events: unknown[] = []
+          for (const managerId of new Set(view.cards.map((card) => card.managerId))) {
+            try {
+              events.push(...(await sessionQuery.readSession(managerId)).events)
+            } catch {
+              // 会话日志读不到（已删除/未落盘）时只显示关系本身给出的状态。
+            }
+          }
+          json(res, 200, { ...view, cards: applyLatestReports(view.cards, events) })
         } catch (error) {
           json(res, 500, { error: error instanceof Error ? error.message : 'managed view failed' })
         }
