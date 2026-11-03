@@ -368,19 +368,26 @@ const CSS = `
 .dsh-taskm-main-title{font-size:16px;font-weight:650;line-height:22px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .dsh-taskm-main-body{flex:1;padding-top:14px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;overflow:auto}
 
-.dsh-taskm-empty{padding:32px 8px;text-align:center;color:var(--dsw-alias-label-secondary)}
-.dsh-taskm-list{display:flex;flex-direction:column;gap:8px}
-.dsh-taskm-item{display:flex;flex-direction:column;gap:6px}
-.dsh-taskm-item-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:0 2px}
-.dsh-taskm-link{padding:0;border:none;background:transparent;color:var(--dsw-alias-brand-primary);cursor:pointer;font:inherit;font-size:12px;text-decoration:none}
-.dsh-taskm-link:hover{text-decoration:underline}
-.dsh-taskm-reply{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-taskm-empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:72px 16px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px}
+.dsh-taskm-empty-mark{display:grid;place-items:center;width:44px;height:44px;border:1px dashed var(--dsw-alias-border-l2);border-radius:14px;color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-list{display:flex;flex-direction:column;gap:10px;width:100%}
+.dsh-taskm-item{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;transition:border-color .16s ease}
+.dsh-taskm-item:hover{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 38%,var(--dsw-alias-border-l1))}
+.dsh-taskm-row{display:flex;flex-direction:column;gap:6px;width:100%;padding:14px 16px 12px;box-sizing:border-box;border:none;border-radius:0;background:transparent;color:inherit;cursor:pointer;text-align:left;font:inherit}
+.dsh-taskm-row:hover{background:transparent}
+.dsh-taskm-row-head{display:flex;align-items:center;gap:10px;width:100%;min-width:0}
+.dsh-taskm-row-title{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:20px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-taskm-row-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);white-space:nowrap;flex:none}
+.dsh-taskm-row-question{font-size:12.5px;line-height:19px;color:var(--dsw-alias-label-secondary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.dsh-taskm-item-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 16px;padding:10px 0 12px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dsh-taskm-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px;letter-spacing:.02em;flex:none}
+.dsh-taskm-pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;flex:none}
+.dsh-taskm-pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.dsh-taskm-link{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px;text-decoration:none;transition:background-color .14s ease,color .14s ease}
+.dsh-taskm-link:hover{background:var(--dsw-alias-button-ghost-active-fill);color:var(--dsw-alias-label-primary)}
+.dsh-taskm-reply{display:flex;flex-direction:column;gap:10px;margin:0 16px 14px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
 .dsh-taskm-reply-question{display:flex;flex-direction:column;gap:4px}
-.dsh-taskm-textarea-sm{min-height:72px}
-.dsh-taskm-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;text-align:left;font:inherit}
-.dsh-taskm-row:hover{border-color:var(--dsw-alias-brand-primary)}
-.dsh-taskm-row-title{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsh-taskm-row-sub{font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap;flex:none}
+.dsh-taskm-textarea-sm{min-height:76px}
 
 .dsh-taskm-badge{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:11px;font-size:12px;line-height:1;white-space:nowrap;flex:none}
 .dsh-taskm-badge-muted{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent);color:var(--dsw-alias-label-secondary)}
@@ -758,7 +765,7 @@ function TaskLinks(props: { task: Task }): ReactElement {
   const conversationId = props.task.captainSessionId ?? props.task.conversations?.[0]?.id
   return (
     <div className="dsh-taskm-item-foot">
-      <span className={`dsh-taskm-badge ${STATUS_CLASS[props.task.status]}`}>
+      <span className={`dsh-taskm-pill ${STATUS_CLASS[props.task.status]}`}>
         {statusLabel(translate, props.task.status)}
       </span>
       {conversationId !== undefined && conversationId !== '' ? (
@@ -852,15 +859,18 @@ function ManagedList(props: { cards: ManagedCard[]; onReplied: () => void }): Re
   return (
     <div className="dsh-taskm-list">
       {props.cards.map((card) => (
-        <div key={card.workerId} className="dsh-taskm-item">
+        <article key={card.workerId} className="dsh-taskm-item">
           <div className="dsh-taskm-row">
-            <span className="dsh-taskm-row-title">{card.title}</span>
-            {card.preset !== '' ? (
-              <span className="dsh-taskm-badge dsh-taskm-badge-muted">{card.preset}</span>
+            <div className="dsh-taskm-row-head">
+              <span className="dsh-taskm-row-title" title={card.title}>{card.title}</span>
+              <span className={`dsh-taskm-pill ${statusClassOf(card.status)}`}>{statusLabelOf(card.status)}</span>
+            </div>
+            {card.question !== undefined && card.question.items[0] !== undefined ? (
+              <div className="dsh-taskm-row-question">{card.question.items[0].question}</div>
             ) : null}
           </div>
           <div className="dsh-taskm-item-foot">
-            <span className={`dsh-taskm-badge ${statusClassOf(card.status)}`}>{statusLabelOf(card.status)}</span>
+            {card.preset !== '' ? <span className="dsh-taskm-chip">{card.preset}</span> : null}
             <button type="button" className="dsh-taskm-link" onClick={() => openConversation(card.workerId)}>
               {translate('openConversation')} · {shortSessionId(card.workerId)}
             </button>
@@ -876,7 +886,7 @@ function ManagedList(props: { cards: ManagedCard[]; onReplied: () => void }): Re
           {card.status === 'waiting-reply'
             ? <ManagedReplyBox card={card} onSent={props.onReplied} />
             : null}
-        </div>
+        </article>
       ))}
     </div>
   )
@@ -1045,29 +1055,35 @@ function TaskList(props: {
   sessionId?: string
 }): ReactElement {
   if (props.tasks.length === 0) {
-    return <div className="dsh-taskm-empty">{translate(props.emptyKey ?? 'empty')}</div>
+    return (
+      <div className="dsh-taskm-empty">
+        <span className="dsh-taskm-empty-mark" dangerouslySetInnerHTML={{ __html: ICON }} />
+        {translate(props.emptyKey ?? 'empty')}
+      </div>
+    )
   }
   return (
     <div className="dsh-taskm-list">
       {props.tasks.map((task) => (
-        <div key={task.id} className="dsh-taskm-item">
+        <article key={task.id} className="dsh-taskm-item">
           <button
             type="button"
             className="dsh-taskm-row"
             onClick={() => props.onOpen(task.id)}
           >
-            <span className="dsh-taskm-row-title">{task.title}</span>
-            {task.category !== undefined && task.category !== '' ? (
-              <span className="dsh-taskm-badge dsh-taskm-badge-muted">{task.category}</span>
-            ) : null}
-            <span className="dsh-taskm-row-sub">{timeText(task.updatedAt)}</span>
-            <span className="dsh-taskm-row-sub">{shortPath(task.directory)}</span>
+            <div className="dsh-taskm-row-head">
+              <span className="dsh-taskm-row-title" title={task.title}>{task.title}</span>
+              {task.category !== undefined && task.category !== '' ? (
+                <span className="dsh-taskm-chip">{task.category}</span>
+              ) : null}
+            </div>
+            <span className="dsh-taskm-row-question">{shortPath(task.directory)} · {timeText(task.updatedAt)}</span>
           </button>
           <TaskLinks task={task} />
           {task.status === 'waiting-reply'
             ? <ReplyBox task={task} managerSessionId={props.sessionId} onSent={props.onReplied} />
             : null}
-        </div>
+        </article>
       ))}
     </div>
   )
@@ -1181,6 +1197,9 @@ function TaskView(props: { sessionId?: string }): ReactElement {
           <div className="dsh-taskm-hint">{translate('managedUnavailable')}</div>
         ) : null}
 
+        {view === 'list' && managed.length > 0 ? (
+          <div className="dsh-taskm-hint">{translate('managedSection')} · {managed.length}</div>
+        ) : null}
         {view === 'list' ? (managed.length > 0 ? (
           <ManagedList cards={managed} onReplied={() => { void refresh() }} />
         ) : (
