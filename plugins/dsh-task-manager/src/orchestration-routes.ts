@@ -10,10 +10,13 @@
  * - `GET  /captains` — registry snapshot (category → charter/session/count).
  * - `PUT  /captains` — charter edit (upsert; may pre-write before first assign).
  * - `POST /assign`   — dispatch a task to a category captain.
+ * - `POST /reply`    — the user's answer from a task card, delivered to the
+ *                      conversation that asked (no identity semantics).
+ * - `GET  /report`   — the task's execution report as a Markdown document.
  * - `POST /report`   — human manual report supplement (no identity semantics).
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { OrchestratorError, type OrchestratorErrorCode, type Status } from './records.ts'
+import { OrchestratorError, type OrchestratorErrorCode, type Status, buildReportMarkdown } from './records.ts'
 import type { TaskManagerService } from './orchestrator.ts'
 import { readJsonBody } from './http.ts'
 
@@ -124,8 +127,51 @@ export function registerOrchestrationRoutes(
 
   effect(() => registrar.register({
     kind: 'exact',
+    path: '/plugins/dsh-task-manager/reply',
+    handler: async (req, res) => {
+      let body: Record<string, unknown>
+      try {
+        body = await readJsonBody(req)
+      } catch {
+        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'invalid JSON body', code: 'INVALID_INPUT' }))
+        return
+      }
+      const taskId = typeof body['taskId'] === 'string' ? body['taskId'].trim() : ''
+      const text = typeof body['text'] === 'string' ? body['text'] : ''
+      const managerSessionId = typeof body['managerSessionId'] === 'string' && body['managerSessionId'] !== ''
+        ? body['managerSessionId']
+        : undefined
+      if (taskId === '' || text.trim() === '') {
+        res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: 'taskId and text are required', code: 'INVALID_INPUT' }))
+        return
+      }
+      await handle(res, () => taskManager.reply(taskId, text, { managerSessionId }))
+    },
+  }), 'task-manager: reply route')
+
+  effect(() => registrar.register({
+    kind: 'exact',
     path: '/plugins/dsh-task-manager/report',
     handler: async (req, res) => {
+      if (req.method === 'GET') {
+        const url = new URL(req.url ?? '/', 'http://x')
+        const taskId = url.searchParams.get('taskId') ?? ''
+        const task = (await taskManager.list()).find((item) => item.id === taskId)
+        if (task === undefined) {
+          res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: `task ${taskId} not found`, code: 'TASK_NOT_FOUND' }))
+          return
+        }
+        res.writeHead(200, {
+          'content-type': 'text/markdown; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-disposition': 'inline; filename="task-report.md"',
+        })
+        res.end(buildReportMarkdown(task))
+        return
+      }
       let body: Record<string, unknown>
       try {
         body = await readJsonBody(req)

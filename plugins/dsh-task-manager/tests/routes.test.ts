@@ -222,3 +222,83 @@ describe('POST /plugins/dsh-task-manager/report (human manual supplement)', () =
     }
   })
 })
+
+describe('POST /plugins/dsh-task-manager/reply', () => {
+  it('delivers the answer to the dispatched captain', async () => {
+    const t = await rig()
+    try {
+      const assigned = await t.service.assign('task-1', 'research', {
+        charter: '章程',
+        managerSessionId: 'session-manager',
+      })
+      const response = await t.call(
+        '/plugins/dsh-task-manager/reply',
+        new FakeRequest('/plugins/dsh-task-manager/reply', 'POST', jsonBody({
+          taskId: 'task-1', text: '用方案 B', managerSessionId: 'session-manager',
+        })),
+      )
+      expect(response.status).toBe(200)
+      expect(JSON.parse(response.body)).toMatchObject({ taskId: 'task-1', delivery: 'cold' })
+      const tasks = await t.service.list()
+      expect(tasks[0]?.captainSessionId).toBe(assigned.captainSessionId)
+      expect(tasks[0]?.lastReply?.text).toBe('用方案 B')
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects empty text with 400 and undispatched tasks with 409', async () => {
+    const t = await rig()
+    try {
+      const empty = await t.call(
+        '/plugins/dsh-task-manager/reply',
+        new FakeRequest('/plugins/dsh-task-manager/reply', 'POST', jsonBody({ taskId: 'task-1', text: ' ' })),
+      )
+      expect(empty.status).toBe(400)
+      const undispatched = await t.call(
+        '/plugins/dsh-task-manager/reply',
+        new FakeRequest('/plugins/dsh-task-manager/reply', 'POST', jsonBody({ taskId: 'task-1', text: '答案' })),
+      )
+      expect(undispatched.status).toBe(409)
+      expect(JSON.parse(undispatched.body)).toMatchObject({ code: 'NOT_DISPATCHED' })
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('GET /plugins/dsh-task-manager/report', () => {
+  it('serves the execution report as Markdown', async () => {
+    const t = await rig()
+    try {
+      await t.service.assign('task-1', 'research', { charter: '章程', managerSessionId: 'session-manager' })
+      const assigned = (await t.service.list())[0]
+      await t.service.report(assigned?.captainSessionId ?? '', 'task-1', 'waiting-reply', '要 A 还是 B？', ['/tmp/a.md'])
+      const response = await t.call(
+        '/plugins/dsh-task-manager/report',
+        new FakeRequest('/plugins/dsh-task-manager/report?taskId=task-1', 'GET'),
+      )
+      expect(response.status).toBe(200)
+      expect(String(response.headers['content-type'])).toContain('text/markdown')
+      expect(response.body).toContain('# 示例任务')
+      expect(response.body).toContain('## 执行汇报')
+      expect(response.body).toContain('要 A 还是 B？')
+      expect(response.body).toContain('/tmp/a.md')
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('404s an unknown task', async () => {
+    const t = await rig()
+    try {
+      const response = await t.call(
+        '/plugins/dsh-task-manager/report',
+        new FakeRequest('/plugins/dsh-task-manager/report?taskId=nope', 'GET'),
+      )
+      expect(response.status).toBe(404)
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})

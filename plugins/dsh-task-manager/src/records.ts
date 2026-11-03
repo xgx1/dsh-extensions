@@ -48,6 +48,8 @@ export interface TaskRecord {
   needsFinalReview: boolean
   /** 最近一次催办时间（epoch ms）。 */
   lastNudgeAt?: number
+  /** 用户在任务清单回复框里发出的最近一次回答（回复清单的答）。 */
+  lastReply?: { text: string; at: number }
   createdAt: number
   updatedAt: number
 }
@@ -270,6 +272,59 @@ export function buildDispatchBrief(input: {
     '',
     '开工前 task_claim 领取；完成或受阻时 task_report 回报（状态 + 报告 + 证据路径）。',
   ].join('\n')
+}
+
+/** The user's reply from the task card, delivered to the conversation that asked. */
+export function buildReplyText(input: {
+  task: Pick<TaskRecord, 'id' | 'title'>
+  text: string
+}): string {
+  return [
+    '【用户回复】',
+    `- taskId: ${input.task.id}`,
+    `- 标题: ${input.task.title}`,
+    '',
+    input.text,
+    '',
+    '请据此继续推进；完成、受阻或还需澄清时用 task_report 回报（状态 + 报告 + 证据路径）。',
+  ].join('\n')
+}
+
+/**
+ * The task's execution report as a standalone Markdown document. Served by
+ * GET /plugins/dsh-task-manager/report so the user can open it in a tab
+ * instead of scraping the card.
+ */
+export function buildReportMarkdown(task: TaskRecord): string {
+  const lines: string[] = [
+    `# ${task.title}`,
+    '',
+    `- 任务 id: \`${task.id}\``,
+    `- 状态: \`${task.status}\``,
+    `- 目录: \`${task.directory}\``,
+    `- 创建: ${new Date(task.createdAt).toISOString()}`,
+    `- 更新: ${new Date(task.updatedAt).toISOString()}`,
+  ]
+  if (task.category !== undefined && task.category !== '') lines.push(`- 类别: ${task.category}`)
+  if (task.captainSessionId !== undefined && task.captainSessionId !== '') {
+    lines.push(`- 执行对话: \`${task.captainSessionId}\``)
+    lines.push(`- 派发轮次: ${task.dispatchRound}`)
+  }
+  lines.push('', '## 任务内容', '', task.content.trim(), '', '## 执行汇报', '')
+  if (task.report === undefined) {
+    lines.push('（暂无汇报）')
+  } else {
+    lines.push(`_${new Date(task.report.at).toISOString()}_`, '', task.report.text.trim())
+    if (task.report.evidence !== undefined && task.report.evidence.length > 0) {
+      lines.push('', '### 证据', '')
+      for (const item of task.report.evidence) lines.push(`- \`${item}\``)
+    }
+  }
+  if (task.lastReply !== undefined) {
+    lines.push('', '## 用户回复', '', `_${new Date(task.lastReply.at).toISOString()}_`, '', task.lastReply.text)
+  }
+  lines.push('')
+  return lines.join('\n')
 }
 
 /** The nudge text delivered to the captain on nudge(taskId). */

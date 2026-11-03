@@ -92,6 +92,8 @@ interface Task {
   needsFinalReview: boolean
   /** 最近一次催办时间（epoch ms）。 */
   lastNudgeAt?: number
+  /** 用户在任务卡片回复框里发出的最近一次回答。 */
+  lastReply?: { text: string; at: number }
   createdAt: number
   updatedAt: number
 }
@@ -157,6 +159,13 @@ const dicts: Record<string, Record<string, string>> = {
     evidence: 'Evidence',
     needsFinalReview: 'Final review required',
     needsFinalReviewHint: 'When enabled, a captain’s done report is clamped to “Waiting for check” until you close the task after your final review.',
+    openConversation: 'Open conversation',
+    executionReport: 'Execution report (.md)',
+    pendingQuestion: 'Waiting for your reply',
+    replyPlaceholder: 'Type your answer here…',
+    sendReply: 'Send reply',
+    replyError: 'Failed to send the reply.',
+    lastReply: 'Your last reply',
   },
   zh: {
     sideLabel: '任务管理',
@@ -205,6 +214,13 @@ const dicts: Record<string, Record<string, string>> = {
     evidence: '证据路径',
     needsFinalReview: '需终审',
     needsFinalReviewHint: '勾选后，队长完成回报将被钳制为「等待检查」，待你终审后方可关单。',
+    openConversation: '打开对话',
+    executionReport: '执行汇报（Markdown）',
+    pendingQuestion: '等待你的回复',
+    replyPlaceholder: '在这里回复…',
+    sendReply: '发送回复',
+    replyError: '回复发送失败。',
+    lastReply: '你上次的回复',
   },
 }
 
@@ -319,6 +335,13 @@ const CSS = `
 
 .dsh-taskm-empty{padding:32px 8px;text-align:center;color:var(--dsw-alias-label-secondary)}
 .dsh-taskm-list{display:flex;flex-direction:column;gap:8px}
+.dsh-taskm-item{display:flex;flex-direction:column;gap:6px}
+.dsh-taskm-item-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:0 2px}
+.dsh-taskm-link{padding:0;border:none;background:transparent;color:var(--dsw-alias-brand-primary);cursor:pointer;font:inherit;font-size:12px;text-decoration:none}
+.dsh-taskm-link:hover{text-decoration:underline}
+.dsh-taskm-reply{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dsh-taskm-reply-question{display:flex;flex-direction:column;gap:4px}
+.dsh-taskm-textarea-sm{min-height:72px}
 .dsh-taskm-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;text-align:left;font:inherit}
 .dsh-taskm-row:hover{border-color:var(--dsw-alias-brand-primary)}
 .dsh-taskm-row-title{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -615,11 +638,119 @@ function NewTaskDialog(props: {
   )
 }
 
+/**
+ * Client root context, captured by apply(). Stateless views reach the shell's
+ * workspace navigation through it (same cast ui-sidebar uses).
+ */
+let clientCtx: unknown
+
+/** Jump to a conversation: switch the shell to it (no full page reload). */
+function openConversation(sessionId: string): void {
+  try {
+    const get = (clientCtx as { get?: (name: string) => unknown } | undefined)?.get
+    if (typeof get !== 'function') return
+    const nav = get.call(clientCtx, 'uiWorkspace') as { openSession?: (id: string) => void } | undefined
+    nav?.openSession?.(sessionId)
+  } catch {
+    // The shell owns navigation; a missing service must never break the panel.
+  }
+}
+
+/**
+ * Inline reply box under a waiting task card. The answer is delivered by the
+ * host to the conversation that asked; it is not a chat message here.
+ */
+function ReplyBox(props: { task: Task; managerSessionId?: string; onSent: () => void }): ReactElement {
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const send = async (): Promise<void> => {
+    if (text.trim() === '') return
+    setSending(true)
+    setError(null)
+    try {
+      await postJSON<{ taskId: string }>('/plugins/dsh-task-manager/reply', {
+        taskId: props.task.id,
+        text,
+        managerSessionId: props.managerSessionId,
+      })
+      setText('')
+      props.onSent()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : translate('replyError'))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="dsh-taskm-reply">
+      {props.task.report !== undefined ? (
+        <div className="dsh-taskm-reply-question">
+          <span className="dsh-taskm-detail-label">{translate('pendingQuestion')}</span>
+          <div className="dsh-taskm-report-text">{props.task.report.text}</div>
+        </div>
+      ) : null}
+      {props.task.lastReply !== undefined ? (
+        <div className="dsh-taskm-hint">
+          {translate('lastReply')} · {timeText(props.task.lastReply.at)} · {props.task.lastReply.text}
+        </div>
+      ) : null}
+      <textarea
+        className="dsh-taskm-textarea dsh-taskm-textarea-sm"
+        value={text}
+        placeholder={translate('replyPlaceholder')}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
+      <div className="dsh-taskm-footer">
+        <button
+          type="button"
+          className="dsh-taskm-primary"
+          disabled={sending || text.trim() === ''}
+          onClick={() => { void send() }}
+        >
+          {translate('sendReply')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Per-card footer links: jump to the working conversation, open the .md report. */
+function TaskLinks(props: { task: Task }): ReactElement {
+  const conversationId = props.task.captainSessionId ?? props.task.conversations?.[0]?.id
+  return (
+    <div className="dsh-taskm-item-foot">
+      <span className={`dsh-taskm-badge ${STATUS_CLASS[props.task.status]}`}>
+        {statusLabel(translate, props.task.status)}
+      </span>
+      {conversationId !== undefined && conversationId !== '' ? (
+        <button type="button" className="dsh-taskm-link" onClick={() => openConversation(conversationId)}>
+          {translate('openConversation')} · {shortSessionId(conversationId)}
+        </button>
+      ) : null}
+      <a
+        className="dsh-taskm-link"
+        href={`/plugins/dsh-task-manager/report?taskId=${encodeURIComponent(props.task.id)}`}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {translate('executionReport')}
+      </a>
+    </div>
+  )
+}
+
 /** Task detail: title, content, status, conversations, worktree. */
 function TaskDetail(props: {
   task: Task
   onBack: () => void
   onStatusChange: (next: Task) => void
+  onReplied: () => void
+  /** Session viewing the panel: the live manager parent for cold-resume delivery. */
+  sessionId?: string
 }): ReactElement {
   const { task } = props
   const [saving, setSaving] = useState(false)
@@ -752,6 +883,11 @@ function TaskDetail(props: {
         )}
       </div>
 
+      <TaskLinks task={task} />
+      {task.status === 'waiting-reply'
+        ? <ReplyBox task={task} managerSessionId={props.sessionId} onSent={props.onReplied} />
+        : null}
+
       {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
     </div>
   )
@@ -764,6 +900,10 @@ function TaskList(props: {
   emptyKey?: string
   onCreate: () => void
   onOpen: (id: string) => void
+  /** Called after a reply was delivered, so the panel reloads the card state. */
+  onReplied: () => void
+  /** Session viewing the panel: the live manager parent for cold-resume delivery. */
+  sessionId?: string
 }): ReactElement {
   if (props.tasks.length === 0) {
     return <div className="dsh-taskm-empty">{translate(props.emptyKey ?? 'empty')}</div>
@@ -771,22 +911,24 @@ function TaskList(props: {
   return (
     <div className="dsh-taskm-list">
       {props.tasks.map((task) => (
-        <button
-          key={task.id}
-          type="button"
-          className="dsh-taskm-row"
-          onClick={() => props.onOpen(task.id)}
-        >
-          <span className="dsh-taskm-row-title">{task.title}</span>
-          <span className={`dsh-taskm-badge ${STATUS_CLASS[task.status]}`}>
-            {statusLabel(translate, task.status)}
-          </span>
-          {task.category !== undefined && task.category !== '' ? (
-            <span className="dsh-taskm-badge dsh-taskm-badge-muted">{task.category}</span>
-          ) : null}
-          <span className="dsh-taskm-row-sub">{timeText(task.updatedAt)}</span>
-          <span className="dsh-taskm-row-sub">{shortPath(task.directory)}</span>
-        </button>
+        <div key={task.id} className="dsh-taskm-item">
+          <button
+            type="button"
+            className="dsh-taskm-row"
+            onClick={() => props.onOpen(task.id)}
+          >
+            <span className="dsh-taskm-row-title">{task.title}</span>
+            {task.category !== undefined && task.category !== '' ? (
+              <span className="dsh-taskm-badge dsh-taskm-badge-muted">{task.category}</span>
+            ) : null}
+            <span className="dsh-taskm-row-sub">{timeText(task.updatedAt)}</span>
+            <span className="dsh-taskm-row-sub">{shortPath(task.directory)}</span>
+          </button>
+          <TaskLinks task={task} />
+          {task.status === 'waiting-reply'
+            ? <ReplyBox task={task} managerSessionId={props.sessionId} onSent={props.onReplied} />
+            : null}
+        </div>
       ))}
     </div>
   )
@@ -897,6 +1039,8 @@ function TaskView(props: { sessionId?: string }): ReactElement {
             tasks={filteredTasks}
             emptyKey={categoryFilter === '' ? undefined : 'emptyFiltered'}
             onCreate={() => setDialogOpen(true)}
+            onReplied={() => { void refresh() }}
+            sessionId={props.sessionId}
             onOpen={(id) => {
               const task = tasks.find((item) => item.id === id) ?? null
               setSelectedTask(task)
@@ -909,6 +1053,8 @@ function TaskView(props: { sessionId?: string }): ReactElement {
               task={selectedTask}
               onBack={() => setView('list')}
               onStatusChange={onStatusChange}
+              onReplied={() => { void refresh() }}
+              sessionId={props.sessionId}
             />
           ) : null
         )}
@@ -932,6 +1078,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  clientCtx = ctx
   ctx.effect(() => installStyles(), 'dsh-task-manager: styles')
 
   ctx.effect(() => ctx.locale.register(NS, { zh: dicts.zh, en: dicts.en }), 'dsh-task-manager: locale')

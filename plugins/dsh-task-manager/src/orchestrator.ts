@@ -34,6 +34,7 @@ import {
   buildCharterPersona,
   buildDispatchBrief,
   buildNudgeText,
+  buildReplyText,
   createOutboundMessage,
 } from './records.ts'
 import { CaptainStore, TaskStore, summarizeCaptains } from './stores.ts'
@@ -153,6 +154,15 @@ export interface TaskManagerService {
   listMine(sessionId: string): Promise<TaskRecord[]>
   /** 催办：向队长会话投递催办文本并打 lastNudgeAt。 */
   nudge(taskId: string, options?: { managerSessionId?: string }): Promise<{ taskId: string; lastNudgeAt: number }>
+  /**
+   * 回复清单的答：把用户在任务卡片回复框里写的内容投递给该任务的队长会话，
+   * 并记 lastReply。送达语义与 nudge 相同（live → followup，冷恢复需 Manager）。
+   */
+  reply(
+    taskId: string,
+    text: string,
+    options?: { managerSessionId?: string },
+  ): Promise<{ taskId: string; delivery: 'live' | 'cold'; at: number }>
   /** Manager 建单（cwd 模式；worktree 流程走 HTTP /create 路由）。 */
   create(input: { title?: string; content: string; directory?: string; needsFinalReview?: boolean }): Promise<TaskRecord>
   /** Manager 显式改状态（形式核验关单/打回通道；不做终审钳制——set-status 是用户的终审关单通道）。 */
@@ -300,6 +310,29 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         }
       })
       return { taskId, lastNudgeAt }
+    },
+
+    async reply(taskId, text, options = {}) {
+      if (typeof text !== 'string' || text.trim() === '') {
+        throw new OrchestratorError('INVALID_INPUT', 'reply text is required')
+      }
+      const tasks = await deps.store.load()
+      const task = tasks.find((item) => item.id === taskId)
+      if (task === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+      if (task.captainSessionId === undefined || task.captainSessionId === '') {
+        throw new OrchestratorError('NOT_DISPATCHED', `task ${taskId} has not been dispatched to a captain`)
+      }
+      const body = text.trim()
+      const delivery = await deliverToCaptain(task.captainSessionId, buildReplyText({ task, text: body }), options.managerSessionId)
+      const at = now()
+      await deps.store.mutate((all) => {
+        const target = all.find((item) => item.id === taskId)
+        if (target !== undefined) {
+          target.lastReply = { text: body, at }
+          target.updatedAt = at
+        }
+      })
+      return { taskId, delivery, at }
     },
 
     async create(input) {

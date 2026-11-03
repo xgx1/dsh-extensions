@@ -357,3 +357,42 @@ describe('listMine / nudge / captains / setCharter', () => {
     }
   })
 })
+
+describe('reply — 回复框的答投递给队长会话', () => {
+  it('delivers a live captain the user reply and stamps lastReply', async () => {
+    const t = await makeService()
+    try {
+      await t.seedTask('task-a')
+      const assigned = await t.service.assign('task-a', 'research', { managerSessionId: 'session-manager' })
+      const captain = t.agents.add(assigned.captainSessionId)
+      const result = await t.service.reply('task-a', '  用方案 B  ')
+
+      expect(result.delivery).toBe('live')
+      expect(result.at).toBe(1_000)
+      const delivered = captain?.lastFollowupText() ?? ''
+      expect(delivered).toContain('【用户回复】')
+      expect(delivered).toContain('task-a')
+      expect(delivered).toContain('用方案 B')
+
+      const tasks = await t.store.load()
+      expect(tasks[0]?.lastReply).toEqual({ text: '用方案 B', at: 1_000 })
+      expect(tasks[0]?.updatedAt).toBe(1_000)
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses undispatched tasks and empty text', async () => {
+    const t = await makeService()
+    try {
+      await t.seedTask('task-a')
+      await expect(t.service.reply('task-a', '答案')).rejects.toMatchObject({ code: 'NOT_DISPATCHED' })
+      await expect(t.service.reply('nope', '答案')).rejects.toMatchObject({ code: 'TASK_NOT_FOUND' })
+      const assigned = await t.service.assign('task-a', 'research', { managerSessionId: 'session-manager' })
+      t.agents.add(assigned.captainSessionId)
+      await expect(t.service.reply('task-a', '   ')).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})
