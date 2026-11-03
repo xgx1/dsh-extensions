@@ -97,6 +97,29 @@ interface Task {
   createdAt: number
   updatedAt: number
 }
+/** 纳管对话的卡片（来自 session-manager 的状态派生，不是本插件自己存的任务）。 */
+type ManagedStatus = 'in-progress' | 'waiting-reply' | 'paused'
+interface ManagedQuestionItem {
+  id: string
+  question: string
+  header?: string
+  options?: string[]
+  multiSelect?: boolean
+}
+interface ManagedCard {
+  workerId: string
+  managerId: string
+  workspaceId: string
+  preset: string
+  title: string
+  status: ManagedStatus
+  question?: { id: string; items: ManagedQuestionItem[] }
+}
+interface ManagedView {
+  cards: ManagedCard[]
+  unavailable?: true
+}
+
 interface WorktreeRow {
   path: string
   branch?: string
@@ -160,6 +183,12 @@ const dicts: Record<string, Record<string, string>> = {
     needsFinalReview: 'Final review required',
     needsFinalReviewHint: 'When enabled, a captain’s done report is clamped to “Waiting for check” until you close the task after your final review.',
     openConversation: 'Open conversation',
+    statusPaused: 'Paused',
+    managedSection: 'Managed conversations',
+    managedUnavailable: 'The management plugin is not running here; showing the local task list.',
+    managedQuestion: 'Waiting for your answer',
+    managedReplyHint: 'Your answer goes to the manager conversation, not to this panel.',
+    managedNoQuestions: 'No pending question.',
     executionReport: 'Execution report (.md)',
     pendingQuestion: 'Waiting for your reply',
     replyPlaceholder: 'Type your answer here…',
@@ -215,6 +244,12 @@ const dicts: Record<string, Record<string, string>> = {
     needsFinalReview: '需终审',
     needsFinalReviewHint: '勾选后，队长完成回报将被钳制为「等待检查」，待你终审后方可关单。',
     openConversation: '打开对话',
+    statusPaused: '已暂停',
+    managedSection: '纳管对话',
+    managedUnavailable: '管理插件未在此实例运行，当前显示本地任务列表。',
+    managedQuestion: '等待你的答复',
+    managedReplyHint: '答复会送进管理对话，不留在本面板。',
+    managedNoQuestions: '当前没有待答问题。',
     executionReport: '执行汇报（Markdown）',
     pendingQuestion: '等待你的回复',
     replyPlaceholder: '在这里回复…',
@@ -743,6 +778,110 @@ function TaskLinks(props: { task: Task }): ReactElement {
   )
 }
 
+/** 纳管卡片的答复框：答复以人类消息身份送进管理会话，不在这里开一段对话。 */
+function ManagedReplyBox(props: { card: ManagedCard; onSent: () => void }): ReactElement {
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const send = async (): Promise<void> => {
+    if (text.trim() === '') return
+    setSending(true)
+    setError(null)
+    try {
+      await postJSON<{ managerSessionId: string }>('/plugins/dsh-task-manager/managed-reply', {
+        managerSessionId: props.card.managerId,
+        text,
+      })
+      setText('')
+      props.onSent()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : translate('replyError'))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const question = props.card.question
+  return (
+    <div className="dsh-taskm-reply">
+      <span className="dsh-taskm-detail-label">{translate('managedQuestion')}</span>
+      {question === undefined ? (
+        <span className="dsh-taskm-hint">{translate('managedNoQuestions')}</span>
+      ) : (
+        question.items.map((item) => (
+          <div key={item.id} className="dsh-taskm-reply-question">
+            {item.header !== undefined ? <span className="dsh-taskm-hint">{item.header}</span> : null}
+            <div className="dsh-taskm-report-text">{item.question}</div>
+            {item.options !== undefined && item.options.length > 0 ? (
+              <div className="dsh-taskm-hint">{item.options.join(' / ')}</div>
+            ) : null}
+          </div>
+        ))
+      )}
+      <textarea
+        className="dsh-taskm-textarea dsh-taskm-textarea-sm"
+        value={text}
+        placeholder={translate('replyPlaceholder')}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <div className="dsh-taskm-hint">{translate('managedReplyHint')}</div>
+      {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
+      <div className="dsh-taskm-footer">
+        <button
+          type="button"
+          className="dsh-taskm-primary"
+          disabled={sending || text.trim() === ''}
+          onClick={() => { void send() }}
+        >
+          {translate('sendReply')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** 纳管对话列表：每张卡片一个真实的工作对话。 */
+function ManagedList(props: { cards: ManagedCard[]; onReplied: () => void }): ReactElement {
+  const statusLabelOf = (status: ManagedStatus): string => status === 'paused'
+    ? translate('statusPaused')
+    : status === 'waiting-reply' ? translate('statusWaitingReply') : translate('statusInProgress')
+  const statusClassOf = (status: ManagedStatus): string => status === 'paused'
+    ? 'dsh-taskm-badge-muted'
+    : status === 'waiting-reply' ? 'dsh-taskm-badge-wait' : 'dsh-taskm-badge-active'
+  return (
+    <div className="dsh-taskm-list">
+      {props.cards.map((card) => (
+        <div key={card.workerId} className="dsh-taskm-item">
+          <div className="dsh-taskm-row">
+            <span className="dsh-taskm-row-title">{card.title}</span>
+            {card.preset !== '' ? (
+              <span className="dsh-taskm-badge dsh-taskm-badge-muted">{card.preset}</span>
+            ) : null}
+          </div>
+          <div className="dsh-taskm-item-foot">
+            <span className={`dsh-taskm-badge ${statusClassOf(card.status)}`}>{statusLabelOf(card.status)}</span>
+            <button type="button" className="dsh-taskm-link" onClick={() => openConversation(card.workerId)}>
+              {translate('openConversation')} · {shortSessionId(card.workerId)}
+            </button>
+            <a
+              className="dsh-taskm-link"
+              href={`/plugins/dsh-task-manager/managed-report?workerSessionId=${encodeURIComponent(card.workerId)}&managerSessionId=${encodeURIComponent(card.managerId)}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {translate('executionReport')}
+            </a>
+          </div>
+          {card.status === 'waiting-reply'
+            ? <ManagedReplyBox card={card} onSent={props.onReplied} />
+            : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** Task detail: title, content, status, conversations, worktree. */
 function TaskDetail(props: {
   task: Task
@@ -938,6 +1077,8 @@ function TaskList(props: {
 function TaskView(props: { sessionId?: string }): ReactElement {
   const [view, setView] = useState<'list' | 'detail'>('list')
   const [tasks, setTasks] = useState<Task[]>([])
+  const [managed, setManaged] = useState<ManagedCard[]>([])
+  const [managedUnavailable, setManagedUnavailable] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [context, setContext] = useState<ContextInfo | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -950,14 +1091,17 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const refresh = useCallback(async (): Promise<void> => {
     try {
       setError(null)
-      const [state, ctx] = await Promise.all([
+      const [state, ctx, view] = await Promise.all([
         getJSON<{ tasks: Task[] }>('/plugins/dsh-task-manager/state'),
         getJSON<ContextInfo>(
           `/plugins/dsh-task-manager/context?sessionId=${encodeURIComponent(sessionIdRef.current ?? '')}`,
         ),
+        getJSON<ManagedView>('/plugins/dsh-task-manager/managed').catch(() => ({ cards: [], unavailable: true as const })),
       ])
       setTasks(state.tasks)
       setContext(ctx)
+      setManaged(view.cards)
+      setManagedUnavailable(view.unavailable === true)
       setSelectedTask((previous) => {
         if (previous === null) return null
         return state.tasks.find((task) => task.id === previous.id) ?? null
@@ -1033,8 +1177,13 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         {error !== null && view === 'list' ? (
           <div className="dsh-taskm-error">{error}</div>
         ) : null}
+        {managedUnavailable && view === 'list' ? (
+          <div className="dsh-taskm-hint">{translate('managedUnavailable')}</div>
+        ) : null}
 
-        {view === 'list' ? (
+        {view === 'list' ? (managed.length > 0 ? (
+          <ManagedList cards={managed} onReplied={() => { void refresh() }} />
+        ) : (
           <TaskList
             tasks={filteredTasks}
             emptyKey={categoryFilter === '' ? undefined : 'emptyFiltered'}
@@ -1047,7 +1196,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
               setView('detail')
             }}
           />
-        ) : (
+        )) : (
           selectedTask !== null ? (
             <TaskDetail
               task={selectedTask}

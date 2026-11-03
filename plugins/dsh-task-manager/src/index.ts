@@ -26,10 +26,12 @@ import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { STATUSES, type ConversationSummary, type RunMode, type Status, type TaskRecord } from './records.ts'
+import { STATUSES, OrchestratorError, type ConversationSummary, type RunMode, type Status, type TaskRecord } from './records.ts'
+import { buildManagedReportMarkdown, readManagedCards, type ManagedCard } from './managed.ts'
+import { deliverHumanMessage, type ReplyRuntime } from './managed-reply.ts'
 import { CaptainStore, TaskStore } from './stores.ts'
 import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
-import { registerOrchestrationRoutes, type RouteRegistrar } from './orchestration-routes.ts'
+import { registerOrchestrationRoutes, statusForError, type RouteRegistrar } from './orchestration-routes.ts'
 import { json, readJsonBody } from './http.ts'
 
 const execFileAsync = promisify(execFile)
@@ -233,6 +235,26 @@ export function apply(ctx: Context, config?: Config): void {
   // Publish for the M2 model tools (consumed via ctx.get('taskManager')).
   ctx.provide(TASK_MANAGER_SERVICE, taskManager)
 
+  /** 别的插件拥有的 storage domain（未类型化诊断面），只在请求时读。 */
+  interface StorageDomainLike {
+    get(name: string): { global: { get(): unknown } } | undefined
+  }
+  /** 会话日志读面。 */
+  interface SessionQueryLike {
+    listEvents(sessionId: string): Promise<readonly unknown[]>
+  }
+
+  /** 读一次 `session_manager` 的 global 状态；域未打开时返回 undefined。 */
+  const readManagedState = (): unknown => {
+    const storageDomain = ctx.get('storageDomain') as StorageDomainLike | undefined
+    return storageDomain?.get('session_manager')?.global.get()
+  }
+
+  const managedRuntime = (): ReplyRuntime => ({
+    agents: ctx.get('agents') as ReplyRuntime['agents'],
+    sessionController: ctx.get('sessionController') as ReplyRuntime['sessionController'],
+  })
+
   let webRegistered = false
   const registerWebSurface = (): void => {
     if (webRegistered) return
@@ -406,6 +428,81 @@ export function apply(ctx: Context, config?: Config): void {
         }
       },
     }), 'task-manager: set-status route')
+
+    // 纳管视图（ADR-0011）：卡片是 session_manager 状态的派生渲染，不落第二份任务表。
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/managed',
+      handler: (_req, res) => {
+        try {
+          json(res, 200, readManagedCards(readManagedState()))
+        } catch (error) {
+          json(res, 500, { error: error instanceof Error ? error.message : 'managed view failed' })
+        }
+      },
+    }), 'task-manager: managed route')
+
+    // 回复框：答复以人类消息身份进入管理会话；管理端不在线时冷恢复，失败就如实报 409。
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/managed-reply',
+      handler: async (req, res) => {
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          json(res, 400, { error: 'invalid JSON body' })
+          return
+        }
+        const managerSessionId = typeof body['managerSessionId'] === 'string' ? body['managerSessionId'].trim() : ''
+        const text = typeof body['text'] === 'string' ? body['text'] : ''
+        if (managerSessionId === '' || text.trim() === '') {
+          json(res, 400, { error: 'managerSessionId and text are required' })
+          return
+        }
+        try {
+          const transport = await deliverHumanMessage(managedRuntime(), managerSessionId, text)
+          json(res, 200, { managerSessionId, transport })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          const code = error instanceof OrchestratorError ? error.code : 'DELIVERY_UNAVAILABLE'
+          json(res, statusForError(error), { error: message, code })
+        }
+      },
+    }), 'task-manager: managed-reply route')
+
+    // 执行汇报：正文从管理会话日志里取（该工作对话被路由给管理端的消息），不另建报表。
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/managed-report',
+      handler: async (req, res) => {
+        const url = new URL(req.url ?? '/', 'http://x')
+        const workerSessionId = url.searchParams.get('workerSessionId') ?? ''
+        const managerSessionId = url.searchParams.get('managerSessionId') ?? ''
+        if (workerSessionId === '' || managerSessionId === '') {
+          json(res, 400, { error: 'workerSessionId and managerSessionId are required' })
+          return
+        }
+        const state = readManagedState()
+        const found = readManagedCards(state).cards.find((card) => card.workerId === workerSessionId)
+        const card: ManagedCard = found ?? {
+          workerId: workerSessionId,
+          managerId: managerSessionId,
+          workspaceId: '',
+          preset: '',
+          title: workerSessionId,
+          status: 'in-progress',
+        }
+        const sessionQuery = ctx.get('sessionQuery') as SessionQueryLike | undefined
+        const events = sessionQuery === undefined ? [] : await sessionQuery.listEvents(managerSessionId)
+        res.writeHead(200, {
+          'content-type': 'text/markdown; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-disposition': 'inline; filename="task-report.md"',
+        })
+        res.end(buildManagedReportMarkdown(card, events))
+      },
+    }), 'task-manager: managed-report route')
 
     // M1 orchestration routes: /captains (GET list + PUT charter), /assign, /report.
     registerOrchestrationRoutes(webServer, taskManager as TaskManagerService, (factory, label) => ctx.effect(factory, label))
