@@ -11,8 +11,9 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   - 额外的 `agent-0` 席位（虚拟键盘/指针，投递到被 pin 的一个窗口）；
   - IPC `ScopedTarget{window}`（`none` 清除）和 `ScopedScreenshot{window,path}`；
   - 被 pin 的窗口豁免 focus-follows-mouse（`b55b7334`），未知 target 失败关闭（`0647becb`）。
-- 小工具在 `/home/sx/projects/agent-seat-probe`（**不是 git 仓库**，换机器会丢）：
-  `agent-seat-probe`（席位输入）、`scoped-target`、`scoped-shot`。
+- 小工具在 `/home/sx/projects/agent-seat-probe`（私有仓 `xgx1/agent-seat-probe`，
+  `Cargo.toml` 的 `niri-ipc` 走 `../niri` 相对路径，clone 时与 niri 检出放同级）：
+  `agent-seat-probe`（席位输入）、`scoped-target`、`scoped-shot`、`sink`（按座位归属验证投递）。
 - **能力只在 fork 二进制起的实例里成立**：`/home/sx/projects/niri/target/debug/niri`。
   生产会话 `niri --session`(PID 2585) / `xwayland-satellite :0`(PID 3087) 跑的是上游 niri，
   没有这些 IPC —— 别对着它调，也别重启它。
@@ -166,5 +167,8 @@ python3 cycle.py 2 suite2.py     # 期望  7 PASS / 0 FAIL / 1 LIMITATION（XSen
 - niri fork：`/home/sx/projects/niri`，分支 `scoped-input-poc`；提交前
   `cargo build --bin niri` + `cargo test --lib`（期望 `204 passed`）；席位状态机在
   `src/agent_seat.rs`，IPC 在 `src/ipc/server.rs`，FFM 豁免在 `src/niri.rs`。
+- 探针仓：`/home/sx/projects/agent-seat-probe`（私有 `xgx1/agent-seat-probe`，`main`）——
+  改完 `cargo build --bins` 验证再提交推送。退出码是契约：非 0 = 没做成（未知窗口 / IPC 错 /
+  意外响应），且失败时**不动**原 pin，脚本里必须检查。
 - 已知未做：真桌面接入（生产会话用 fork 重启）、视频录制、相对鼠标/pointer-lock、
   agent-desktop 的 DSH 落地。
