@@ -15,11 +15,15 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   `Cargo.toml` 的 `niri-ipc` 走 `../niri` 相对路径，clone 时与 niri 检出放同级）：
   `agent-seat-probe`（席位输入）、`scoped-target`、`scoped-shot`、`sink`（按座位归属验证投递）。
 - **能力只在 fork 二进制起的实例里成立**：嵌套环境用 `target/debug/niri`；生产桌面自 2026-11-05
-  起用 `target/release/niri`（`niri.service` 的 drop-in
-  `~/.config/systemd/user/niri.service.d/fork.conf`）。**重启它 = 重启整个桌面会话**（窗口全关），
-  动手前先问用户。回退：删 drop-in + `systemctl --user daemon-reload` 再 restart。
-- 目前所有实测都在**嵌套环境**里：Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite。
-  真桌面还没接过开关。
+  起跑 `target/release/niri`，且**上游 `niri` 包已卸载**（`/usr/bin/niri` 已不存在）：
+  - 单元 `~/.config/systemd/user/niri.service`（整份本地 unit，不再有 drop-in）；
+  - 入口链 greetd → `/usr/local/bin/start-desktop` → `/usr/local/bin/niri-session` → `systemctl --user start niri.service`；
+  - `niri` 命令是 `/usr/local/bin/niri` 包装脚本，指向 fork release（`niri msg` / `validate` 都走它）。
+  **重启它 = 重启整个桌面会话**（窗口全关），动手前先问用户。救急（fork 起不来）：
+  `sudo pacman -U /var/cache/pacman/pkg/niri-26.04-1-x86_64.pkg.tar.zst` → `systemctl --user daemon-reload`
+  → `systemctl --user start niri-fallback.service`（该 unit 跑 `/usr/bin/niri`，仅恢复用）。
+- 默认在**嵌套环境**里干活：Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite。
+  生产桌面也是 fork（`scoped-target` 失败关闭在真会话上验过），但注入类实测仍只在嵌套环境做。
 
 ## 0. 先选路线
 
@@ -144,8 +148,9 @@ scoped-shot <WIN> /tmp/look.png legacy   # 老动作，会占用剪贴板（对�
 
 ## 5. 安全红线
 
-- 不碰：生产 `niri --session`(2585)、`xwayland-satellite :0`(3087)、日常 Helium(30692) 及其
-  profile、用户的 UnrealEditor、生产 DSH(`:3080`)。本目录的生产会话一律只读。
+- 不碰：生产会话进程（`systemctl --user show niri.service -p MainPID --value` 取）、生产
+  `xwayland-satellite`（`:0`）、日常 Helium 及其 profile、用户的 UnrealEditor、生产 DSH(`:3080`)。
+  本目录的生产会话一律只读。
 - 只清理**自己起的** PID；禁止 `pkill -f`；不要动别的会话的 X/Wayland socket。
 - 不要用 `~/.local/bin/pin`（会读剪贴板）；不要在没起嵌套环境时把未定向键鼠发进当前会话。
 - 收尾用 `run/STOP-APPS` + `run/STOP`，结束后确认 `/run/user/1000` 下没有 `bwc-reg-*` 残留、
@@ -171,5 +176,4 @@ python3 cycle.py 2 suite2.py     # 期望  7 PASS / 0 FAIL / 1 LIMITATION（XSen
 - 探针仓：`/home/sx/projects/agent-seat-probe`（私有 `xgx1/agent-seat-probe`，`main`）——
   改完 `cargo build --bins` 验证再提交推送。退出码是契约：非 0 = 没做成（未知窗口 / IPC 错 /
   意外响应），且失败时**不动**原 pin，脚本里必须检查。
-- 已知未做：真桌面接入（生产会话用 fork 重启）、视频录制、相对鼠标/pointer-lock、
-  agent-desktop 的 DSH 落地。
+- 已知未做：视频录制、相对鼠标/pointer-lock、agent-desktop 的 DSH 落地。
