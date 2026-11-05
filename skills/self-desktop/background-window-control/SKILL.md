@@ -19,9 +19,8 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   - 单元 `~/.config/systemd/user/niri.service`（整份本地 unit，不再有 drop-in）；
   - 入口链 greetd → `/usr/local/bin/start-desktop` → `/usr/local/bin/niri-session` → `systemctl --user start niri.service`；
   - `niri` 命令是 `/usr/local/bin/niri` 包装脚本，指向 fork release（`niri msg` / `validate` 都走它）。
-  **重启它 = 重启整个桌面会话**（窗口全关），动手前先问用户。救急（fork 起不来）：
-  `sudo pacman -U /var/cache/pacman/pkg/niri-26.04-1-x86_64.pkg.tar.zst` → `systemctl --user daemon-reload`
-  → `systemctl --user start niri-fallback.service`（该 unit 跑 `/usr/bin/niri`，仅恢复用）。
+  **重启它 = 重启整个桌面会话**（窗口全关），动手前先问用户。`/usr/local/bin/start-desktop` 带 30s 看门狗：
+  会话起不来会自动 `pacman -U` 缓存包并起 `niri-fallback.service`；手工等价步骤就是这三条命令。
 - 默认在**嵌套环境**里干活：Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite。
   生产桌面也是 fork（`scoped-target` 失败关闭在真会话上验过），但注入类实测仍只在嵌套环境做。
 
