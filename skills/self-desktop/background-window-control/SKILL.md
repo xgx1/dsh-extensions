@@ -50,6 +50,10 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   key 是工作区根目录（向上找 `.git`/`AGENTS.md`/`.dsh`）md5 前 8 位，形如 `ws-6f1aa0a4`。
 - 看/接手别人的桌面：http://127.0.0.1:8793/ 的「其他桌面」区，或
   `dsh-desktops.py action <桌面> type --text ... | key --combo ... | click --x X --y Y | focus-window --window N`。
+- 稳定性：嵌套 niri 只能软件渲染（Xvfb 没有 DRI3 → llvmpipe）。fork 的 winit 后端**没有 EGL render node
+  就不宣告 dmabuf**（否则客户端 dmabuf 导入失败后 llvmpipe 会 SIGSEGV，整个桌面一起没）；agent 桌面另带
+  `LP_NUM_THREADS=1` / `MESA_GLTHREAD=false`。GPU 类负载（Vulkan、要真 GPU 的 UE/Unity）在软件渲染里跑不动。
+- 打字：ASCII 走 `xdotool type`；中文走 `wl-copy` 放进该桌面的 Wayland 剪贴板 + `Ctrl+V`，只能进 X11 窗口。
 - 下面几节的嵌套测试环境流程（`cycle.py`）依然适用于**需要干净可复位环境**的回归；
   日常干活用 agent 桌面即可，不用自己起 Xvfb。
 
