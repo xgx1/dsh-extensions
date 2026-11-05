@@ -66,8 +66,9 @@ niri msg action move-floating-window --id <WIN> -x 800 -y 80
 - `--focus false` 是关键：窗口搬过去、亮起来，焦点留在原窗口（回归 03 有逐事件证据）。
 - `-x/-y` 裸数字 = **绝对**位置，`+N`/`-N` = 相对，`N%` = 占工作区比例
   （`PositionChange` 的 FromStr 语义，别再照抄"相对位移"的说法）。
-- 等价 JSON（CLI 参数拿不准时更省事）：
-  `niri msg --json ...` 不行时直接连 socket 发 `{"Action":{"MoveWindowToWorkspace":{"window_id":3,"reference":{"Name":"human"},"focus":false}}}`。
+- 等价 JSON：CLI 参数拿不准时直接往 niri socket 写一行
+  `{"Action":{"MoveWindowToWorkspace":{"window_id":3,"reference":{"Name":"human"},"focus":false}}}`，
+  `testlib.action()` 就是这么发的（`niri msg` 只用来发 CLI 形式）。
 - 浮窗只压在平铺窗口之上；fullscreen/其他浮窗不保证。
 - `<WORKSPACE>` 是索引或名字（`human`/`agent`），不是内部 id。
 
