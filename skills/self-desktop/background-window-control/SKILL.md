@@ -156,8 +156,9 @@ python3 cycle.py 2 suite.py      # 期望 13 PASS / 0 FAIL / 1 LIMITATION（XSen
 python3 cycle.py 2 suite2.py     # 期望  7 PASS / 0 FAIL / 1 LIMITATION（XSendEvent）
 ```
 
-证据与背景：`../regression-evidence.md`（逐项实测）、`../xwayland-visibility-research.md`、
-`../xwayland-isolation-research.md`、`../xwayland-local-source-verification.md`、`../spec.md`。
+证据与背景（都在 `/home/sx/projects/MyAI/.scratch/background-window-control/`，注意该目录目前
+不进 MyAI 仓库）：`regression-evidence.md`（逐项实测）、`xwayland-visibility-research.md`、
+`xwayland-isolation-research.md`、`xwayland-local-source-verification.md`、`spec.md`。
 
 ## 7. 改代码时
 
