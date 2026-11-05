@@ -21,7 +21,8 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   - `niri` 命令是 `/usr/local/bin/niri` 包装脚本，指向 fork release（`niri msg` / `validate` 都走它）。
   **重启它 = 重启整个桌面会话**（窗口全关），动手前先问用户。`/usr/local/bin/start-desktop` 带 30s 看门狗：
   会话起不来会自动 `pacman -U` 缓存包并起 `niri-fallback.service`；手工等价步骤就是这三条命令。
-- 默认在**嵌套环境**里干活：Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite。
+- 落点：**每个工作区一个 agent 桌面**（见第 0 节）；要干净可复位的回归环境时，仍用
+  Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite 这套（第 1 节）。
   生产桌面也是 fork（`scoped-target` 失败关闭在真会话上验过），但注入类实测仍只在嵌套环境做。
 
 ## 0. 先选路线
@@ -32,6 +33,25 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
 | 应用必须真的收到输入（canvas/游戏） | `scoped-target` + 席位（原生 Wayland）、`xi2-inject`（satellite 的 X11） | 不要用 `xdotool type --window`（XSendEvent） |
 | 读内容（浏览器/有 a11y 的应用） | 优先 a11y/CDP/应用自带 API | 不要靠模拟点击抓数据 |
 | 运行 UE/Unity 全屏游戏 | 先在嵌套环境里跑，X11 走 satellite + MPX | 不要在人正在用的会话里全屏接管 |
+
+## 0. 落点：GUI 默认在自己的 agent 桌面（2026-11-06 起）
+
+`dsh-web` 的 bash 工具命令启动时会 source `~/.dsh/bin/agent-shell-env.sh`（systemd drop-in 里的
+`BASH_ENV`），按工作区 key 找/拉起一个嵌套 niri 桌面，并把 `WAYLAND_DISPLAY` / `DISPLAY` / `NIRI_SOCKET`
+指过去。所以：
+
+- 直接跑任何 GUI（Unity、Unreal、Electron、GTK）**默认落在自己的 agent 桌面**，不是人的桌面；
+  `niri msg ...` 也操作自己的桌面（`agent-niri` 等价）。
+- 人的桌面：`prod-niri msg ...`、`prod-xdo ...`、`prod-grim ...`，或直接用 `PROD_NIRI_SOCKET` /
+  `PROD_DISPLAY` / `PROD_WAYLAND_DISPLAY`。`PROD_NIRI_SOCKET` 指向**当前活着的**生产 socket，
+  不要用从 dsh-web 进程继承下来的旧值（可能停在已结束的会话上）。
+- 单条命令要留在人的桌面：`AGENT_DESKTOP=0 <命令>`。
+- 桌面管理：`~/.dsh/bin/agent-desktop.py list | up | down --all | env | run -- CMD`；30 分钟没命令没窗口自动收。
+  key 是工作区根目录（向上找 `.git`/`AGENTS.md`/`.dsh`）md5 前 8 位，形如 `ws-6f1aa0a4`。
+- 看/接手别人的桌面：http://127.0.0.1:8793/ 的「其他桌面」区，或
+  `dsh-desktops.py action <桌面> type --text ... | key --combo ... | click --x X --y Y | focus-window --window N`。
+- 下面几节的嵌套测试环境流程（`cycle.py`）依然适用于**需要干净可复位环境**的回归；
+  日常干活用 agent 桌面即可，不用自己起 Xvfb。
 
 ## 1. 起环境（默认方式）
 
@@ -175,4 +195,4 @@ python3 cycle.py 2 suite2.py     # 期望  7 PASS / 0 FAIL / 1 LIMITATION（XSen
 - 探针仓：`/home/sx/projects/agent-seat-probe`（私有 `xgx1/agent-seat-probe`，`main`）——
   改完 `cargo build --bins` 验证再提交推送。退出码是契约：非 0 = 没做成（未知窗口 / IPC 错 /
   意外响应），且失败时**不动**原 pin，脚本里必须检查。
-- 已知未做：视频录制、相对鼠标/pointer-lock、agent-desktop 的 DSH 落地。
+- 已知未做：视频录制、相对鼠标/pointer-lock；agent-desktop 的端到端验收要等生产 `dsh-web` 重启（钩子才生效）。
