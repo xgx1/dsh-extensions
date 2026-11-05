@@ -14,9 +14,10 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
 - 小工具在 `/home/sx/projects/agent-seat-probe`（私有仓 `xgx1/agent-seat-probe`，
   `Cargo.toml` 的 `niri-ipc` 走 `../niri` 相对路径，clone 时与 niri 检出放同级）：
   `agent-seat-probe`（席位输入）、`scoped-target`、`scoped-shot`、`sink`（按座位归属验证投递）。
-- **能力只在 fork 二进制起的实例里成立**：`/home/sx/projects/niri/target/debug/niri`。
-  生产会话 `niri --session`(PID 2585) / `xwayland-satellite :0`(PID 3087) 跑的是上游 niri，
-  没有这些 IPC —— 别对着它调，也别重启它。
+- **能力只在 fork 二进制起的实例里成立**：嵌套环境用 `target/debug/niri`；生产桌面自 2026-11-05
+  起用 `target/release/niri`（`niri.service` 的 drop-in
+  `~/.config/systemd/user/niri.service.d/fork.conf`）。**重启它 = 重启整个桌面会话**（窗口全关），
+  动手前先问用户。回退：删 drop-in + `systemctl --user daemon-reload` 再 restart。
 - 目前所有实测都在**嵌套环境**里：Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite。
   真桌面还没接过开关。
 
