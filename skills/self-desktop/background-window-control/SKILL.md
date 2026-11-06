@@ -50,10 +50,14 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   key 是工作区根目录（向上找 `.git`/`AGENTS.md`/`.dsh`）md5 前 8 位，形如 `ws-6f1aa0a4`。
 - 看/接手别人的桌面：http://127.0.0.1:8793/ 的「其他桌面」区，或
   `dsh-desktops.py action <桌面> type --text ... | key --combo ... | click --x X --y Y | focus-window --window N`。
-- 稳定性：嵌套 niri 只能软件渲染（Xvfb 没有 DRI3 → llvmpipe）。fork 的 winit 后端**没有 EGL render node
-  就不宣告 dmabuf**（否则客户端 dmabuf 导入失败后 llvmpipe 会 SIGSEGV，整个桌面一起没）；agent 桌面另带
-  `LP_NUM_THREADS=1` / `MESA_GLTHREAD=false`。GPU 类负载（Vulkan、要真 GPU 的 UE/Unity）在软件渲染里跑不动。
-- 打字：ASCII 走 `xdotool type`；中文走 `wl-copy` 放进该桌面的 Wayland 剪贴板 + `Ctrl+V`，只能进 X11 窗口。
+- **真 GPU（2026-11-06 起）**：agent 桌面是生产合成器的 **Wayland 客户端**（父表面 = 生产 niri 的 Wayland，
+  不再套 Xvfb），所以嵌套 niri 和里面的客户端直接拿到 `/dev/dri/renderD128`，UE/Unity 的 GPU 部分能跑。
+  以前套 Xvfb 时是 llvmpipe 软渲染（X 虚拟帧缓冲没有 DRI3），那条路的限制只对**回归环境**（第 1 节）成立。
+  agent 桌面在 `ue` 工作区是一个普通窗口（规则 app-id `^niri$` → `ue` + `open-focused false`），要看按 `Mod+U`。
+- 打字/点击只走 agent 座位：`scoped-target <嵌套窗口 id>` 钉住，然后
+  `agent-seat-probe agent-0 text '...'` / `keys 'ctrl+v'` / `click <x> <y>`（坐标是千分数）。
+  中文等非 ASCII 由 `dsh-desktops.py` 自动走 `wl-copy`（写进这个桌面自己的剪贴板）+ `keys 'ctrl+v'`。
+  **别用 `wtype` 往生产合成器打字**——它绑注册表里最后一个 seat，绑到 seat0 就会打进人的窗口。
 - 下面几节的嵌套测试环境流程（`cycle.py`）依然适用于**需要干净可复位环境**的回归；
   日常干活用 agent 桌面即可，不用自己起 Xvfb。
 
