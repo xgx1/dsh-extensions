@@ -54,6 +54,10 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   不再套 Xvfb），所以嵌套 niri 和里面的客户端直接拿到 `/dev/dri/renderD128`，UE/Unity 的 GPU 部分能跑。
   以前套 Xvfb 时是 llvmpipe 软渲染（X 虚拟帧缓冲没有 DRI3），那条路的限制只对**回归环境**（第 1 节）成立。
   agent 桌面在 `ue` 工作区是一个普通窗口（规则 app-id `^niri$` → `ue` + `open-focused false`），要看按 `Mod+U`。
+- **不要为了"要 GPU"把 GUI 塞进生产桌面**：agent 桌面已经是真 GPU，照常启动即可。
+  `NIRI_SOCKET=$PROD_NIRI_SOCKET niri msg action spawn -- ...` 这种写法会把窗口开到人的合成器上
+  （2026-11-06 12:12 就是这样把 UnrealEditor 开到 `ue` 的）。只有 VR/OpenXR 预览、独占全屏、GPU 基准
+  这类必须碰物理 GPU 会话的，才用 `AGENT_DESKTOP=0` 回生产桌面。
 - 打字/点击只走 agent 座位：`scoped-target <嵌套窗口 id>` 钉住，然后
   `agent-seat-probe agent-0 text '...'` / `keys 'ctrl+v'` / `click <x> <y>`（坐标是千分数）。
   中文等非 ASCII 由 `dsh-desktops.py` 自动走 `wl-copy`（写进这个桌面自己的剪贴板）+ `keys 'ctrl+v'`。
