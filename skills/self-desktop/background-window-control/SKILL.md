@@ -33,6 +33,7 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
 | 应用必须真的收到输入（canvas/游戏） | `scoped-target` + 席位（原生 Wayland）、`xi2-inject`（satellite 的 X11） | 不要用 `xdotool type --window`（XSendEvent） |
 | 读内容（浏览器/有 a11y 的应用） | 优先 a11y/CDP/应用自带 API | 不要靠模拟点击抓数据 |
 | 运行 UE/Unity 全屏游戏 | 先在嵌套环境里跑，X11 走 satellite + MPX | 不要在人正在用的会话里全屏接管 |
+| Unity/UE 桌面包的端到端点击测试（要固定分辨率、模拟键鼠） | 直接在自己的 agent 桌面里跑：`DISPLAY=:10`（satellite 的 X11）或原生 Wayland，桌面本身就是合成器/窗口管理者 | **不要 `xvfb-run` / 自起 `Xvfb`**：软渲染（llvmpipe）、面板上还得额外扫、焦点只能靠指针 |
 
 ## 0. 落点：GUI 默认在自己的 agent 桌面（2026-11-06 起）
 
