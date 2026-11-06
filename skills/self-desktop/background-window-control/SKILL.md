@@ -121,11 +121,22 @@ niri msg action move-floating-window --id <WIN> -x 800 -y 80
 ### 3.1 原生 Wayland 或 satellite 的 X11 窗口 → agent-0 席位
 
 ```bash
+niri msg action focus-window --id <WIN>   # 先让它在**自己的桌面里**获得焦点（见下）
 scoped-target <WIN>            # 选窗口；scoped-target none 解除
 agent-seat-probe agent-0 key 30          # evdev 30 = a（48=b，35=h）
 agent-seat-probe agent-0 click 500 500   # 坐标是千分比：0..1000 相对被 pin 的窗口
 agent-seat-probe agent-0 wheel 500 500 2 # 位置 + 滚轮格数
 agent-seat-probe agent-0 drag 100 100 900 900 12
+```
+
+- 席位只决定"生产合成器把键发给哪个顶层窗口"；那个窗口所在的桌面（嵌套 niri）内部还有一层焦点：
+  键最终进的是它里面**当前被聚焦**的窗口。所以钉之前先 `focus-window` 并等 `is_focused` 变真
+  （`smoke.py` 04 就踩过这个：没有这一步，键会落进同一桌面里另一个被聚焦的窗口，看起来像"投递失败"，
+  而且 `scoped-target` 照样返回 `handled`）。
+- 一次性连发多个按键时注意键重复：press/release 之间若有延迟，客户端可能收到额外重复字符
+  （实测 `key 30` 单次曾在文本框里留下 11 个 `a`）；要精确长度用 `text`。
+
+```bash
 PROBE_SKIP_MOTION=1 agent-seat-probe agent-0 key 30   # 只测键盘路径
 ```
 
