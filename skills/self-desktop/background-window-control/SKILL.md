@@ -21,8 +21,9 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   - `niri` 命令是 `/usr/local/bin/niri` 包装脚本，指向 fork release（`niri msg` / `validate` 都走它）。
   **重启它 = 重启整个桌面会话**（窗口全关），动手前先问用户。`/usr/local/bin/start-desktop` 带 30s 看门狗：
   会话起不来会自动 `pacman -U` 缓存包并起 `niri-fallback.service`；手工等价步骤就是这三条命令。
-- 落点：**每个工作区一个 agent 桌面**（见第 0 节）；要干净可复位的回归环境时，仍用
-  Xvfb（`:1` 父显示）→ niri(`poc.kdl`，`:2`) → xwayland-satellite 这套（第 1 节）。
+- 落点：**每个工作区一个 agent 桌面**（见第 0 节）；要干净可复位的回归环境时，用同一套机制的
+  私有实例：嵌套 niri 挂生产合成器（窗口停 `ue`）→ 它自己的 xwayland-satellite（第 1 节）。
+  **没有 Xvfb**（2026-11-06 已把 `xorg-server-xvfb` 卸载、两套回归夹具全部改掉）。
   生产桌面也是 fork（`scoped-target` 失败关闭在真会话上验过），但注入类实测仍只在嵌套环境做。
 
 ## 0. 先选路线
@@ -64,7 +65,7 @@ description: 在不打断人的前提下操作另一批 GUI 应用：把别人�
   中文等非 ASCII 由 `dsh-desktops.py` 自动走 `wl-copy`（写进这个桌面自己的剪贴板）+ `keys 'ctrl+v'`。
   **别用 `wtype` 往生产合成器打字**——它绑注册表里最后一个 seat，绑到 seat0 就会打进人的窗口。
 - 下面几节的嵌套测试环境流程（`cycle.py`）依然适用于**需要干净可复位环境**的回归；
-  日常干活用 agent 桌面即可，不用自己起 Xvfb。
+  日常干活用 agent 桌面即可。本机没有 Xvfb 了，也别再 `xvfb-run`。
 
 ## 1. 起环境（默认方式）
 
@@ -73,23 +74,28 @@ cd /home/sx/projects/MyAI/.scratch/background-window-control/regression-visibili
 python3 cycle.py 1 smoke.py
 ```
 
-一条命令完成：起 Xvfb+niri+satellite → 起 4 个真实 GTK fixture（`regression-human` 原生、
-`regression-agent-x11`、`regression-agent-native`、`regression-human-x11`）→ 跑
-`smoke.py`（6 步，验证本文件里的命令）→ 收尾清理。**每轮都是全新环境**：同一环境连跑
-第三次起 X11 注入会整体失效，这是实测事实，不要试图复用。
+一条命令完成：起嵌套 niri（生产合成器的 Wayland 客户端，窗口自动停 `ue`）+ 它自带的
+satellite → 起 4 个真实 GTK fixture（`regression-human` 原生、`regression-agent-x11`、
+`regression-agent-native`、`regression-human-x11`）→ 跑 `smoke.py`（6 步，验证本文件里的命令）
+→ 收尾清理。**每轮都是全新环境**：同一环境连跑第三次起 X11 注入会整体失效，这是实测事实，
+不要试图复用。人看到的永远是 `ue` 里那个嵌套窗口，不会糊到面前来。
 
 手动长会话：
 
 ```bash
-python3 environment.py &      # 等出现 run/environment.json（含 display/wayland/ipc/runtime/pids）
+python3 environment.py &      # 等出现 run/environment.json
 python3 apps.py &             # 等出现 run/apps.json
 # 交互……结束收尾（必须）：
-touch run/STOP-APPS run/STOP  # 两个脚本会回收自己的子进程并删掉自己的 runtime 目录
+touch run/STOP-APPS run/STOP  # 两个脚本回收自己的子进程；XDG_RUNTIME_DIR 与生产共用，不再有私有目录
 ```
 
 Python 里直接用 `testlib.py`：`windows() focus() workspaces() action() act() by_title() state()
-agent() human() xdo() shot() run()`；`ENV` 已带 `XDG_RUNTIME_DIR/WAYLAND_DISPLAY/NIRI_SOCKET`
-并从环境里删掉 `DISPLAY`（X11 fixture 要自己塞 `INFO['display']`，跑 `xdotool` 用 `xdo()`）。
+agent() human() human_motion() xdo() shot() run()`；`ENV` 已带 `XDG_RUNTIME_DIR/WAYLAND_DISPLAY/
+NIRI_SOCKET` 并从环境里删掉 `DISPLAY`（X11 fixture 要自己塞 `INFO['display']`，跑 `xdotool` 用 `xdo()`）。
+`environment.json` 字段：`display`（satellite 的 X11）、`wayland`/`ipc`（嵌套 niri）、`runtime`
+（`/run/user/1000`，与生产共用）、`parent_wayland`、`parent_window`（人在生产合成器上看到的那个窗口）、
+`park_workspace`（默认 `ue`，可用 `BWC_PARK_WORKSPACE` 改）、`pids`。没有 `parent_display`：
+人的那一面是 Wayland，模拟"人把鼠标移过去"用 `human_motion(x千分比, y千分比)`（探针的 `motion` 模式）。
 
 ## 2. 显示原窗口但不夺焦
 
