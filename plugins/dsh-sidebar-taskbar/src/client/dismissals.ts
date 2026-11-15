@@ -11,7 +11,7 @@
  * list.
  */
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { isSubagentSession } from './tasks.ts'
 

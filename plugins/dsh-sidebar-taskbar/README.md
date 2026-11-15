@@ -56,6 +56,7 @@ systemctl --user restart dsh-web
 
 ## 变更记录
 
+- **0.4.1** — 适配 dsh 0.2.2-rc：`uiSession.sessionStatus` 从 ui-session 的普通字段变成独立 Cordis 子服务（由 `@deepseek-ai/dsh-client-ui-session-status` 提供），未在 `inject` 里声明就读取会抛 `cannot get property "uiSession.sessionStatus" without inject`。注入表补上 `uiSession.sessionStatus`，类型改从 `@deepseek-ai/dsh-client-ui-session-status` 取，`apply` 直接用 `ctx.uiSession.sessionStatus`（不再结构体强转）。
 - **0.4.0** — 忽略子 agent 会话。三组分类与结束组确认态都按官方 `origin === 'subagent'` 过滤，子 agent 的运行/等待/结束状态归到父会话行；旧确认态里已记录的子 agent 条目会被清掉。带 `parentId` 的非 subagent 会话（如 fork）不受影响。
 - **0.3.0** — 「运行结束」组改为手动关闭。原来该组直接读官方 `completionUnread`，点一下行（跳转到会话）官方就清除旗标、行随之消失；现在结束组由本地确认态驱动，点行只跳转、行仍在，只有点该行的 ✕ 才移除，关闭态刷新后依然有效。
 - **0.2.0** — 修复任务栏整体不可见。DSH 升级后旧实现读取的三个面已失效：`sessions.open` 移出 Session face（跳转改走 `uiWorkspace.openSession`），`SessionSummary.completed` 字段已删除，`uiSession.pendingInteractions` 已并入统一的 `uiSession.sessionStatus`。旧代码在 `getSnapshot()` 上调用 `undefined`，React 根渲染即抛错，任务栏锚点在 DOM 中但永远为空。
@@ -70,4 +71,4 @@ pnpm typecheck && pnpm test && pnpm build
 
 ## 出处
 
-状态语义来自官方 `@deepseek-ai/dsh-client-ui-session`（`SessionStatus` / `SessionStatusSnapshot`），跳转 API 来自 `@deepseek-ai/dsh-client-ui-workspace`（`UiWorkspace.openSession`），标题与顺序来自 `@deepseek-ai/dsh-api-session-controller` 的 `sessions.list`；DOM 挂载模式沿用本机已装 `dsh-aionui-panel` 的 `waitForElement + createRoot` 先例；构建产物形态为 `__ModuleLoader__` + platform-module external（同 `dsh-task-manager`）。
+状态语义来自官方 `@deepseek-ai/dsh-client-ui-session-status`（`SessionStatus` / `SessionStatusSnapshot`，Cordis 服务 `uiSession.sessionStatus`），跳转 API 来自 `@deepseek-ai/dsh-client-ui-workspace`（`UiWorkspace.openSession`），标题与顺序来自 `@deepseek-ai/dsh-api-session-controller` 的 `sessions.list`；DOM 挂载模式沿用本机已装 `dsh-aionui-panel` 的 `waitForElement + createRoot` 先例；构建产物形态为 `__ModuleLoader__` + platform-module external（同 `dsh-task-manager`）。

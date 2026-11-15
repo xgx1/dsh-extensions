@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks, type TaskRow } from './tasks.ts'
 import { dismissDone, loadDone, reduceDone, saveDone, type DoneState } from './dismissals.ts'

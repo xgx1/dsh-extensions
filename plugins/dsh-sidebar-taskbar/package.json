@@ -1,7 +1,7 @@
 {
   "name": "dsh-sidebar-taskbar",
-  "version": "0.4.0",
-  "description": "DSH web GUI sidebar task bar: main-conversation tasks only (subagent sessions ignored) \u2014 finished (green, manually dismissed), running (red), waiting-for-reply (amber) \u2014 listed above the workspace browser, click to jump; a pure profile-bundle overlay, zero dsh source changes",
+  "version": "0.4.1",
+  "description": "DSH web GUI sidebar task bar: main-conversation tasks only (subagent sessions ignored) — finished (green, manually dismissed), running (red), waiting-for-reply (amber) — listed above the workspace browser, click to jump; a pure profile-bundle overlay, zero dsh source changes",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -24,6 +24,7 @@
       "inject": [
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-session-status",
         "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "platform": "web"
@@ -33,11 +34,12 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
-    "@deepseek-ai/dsh-api-session-controller": "link:../../deepseek-harness/packages/api/session-controller",
-    "@deepseek-ai/dsh-client-ui-session": "link:../../deepseek-harness/packages/client/ui-session",
-    "@deepseek-ai/dsh-client-ui-workspace": "link:../../deepseek-harness/packages/client/ui-workspace",
-    "@deepseek-ai/dsh-session": "link:../../deepseek-harness/packages/core/session",
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-api-session-controller": "link:../../../deepseek-harness/packages/api/session-controller",
+    "@deepseek-ai/dsh-client-ui-session": "link:../../../deepseek-harness/packages/client/ui-session",
+    "@deepseek-ai/dsh-client-ui-session-status": "link:../../../deepseek-harness/packages/client/ui-session-status",
+    "@deepseek-ai/dsh-client-ui-workspace": "link:../../../deepseek-harness/packages/client/ui-workspace",
+    "@deepseek-ai/dsh-session": "link:../../../deepseek-harness/packages/core/session",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",

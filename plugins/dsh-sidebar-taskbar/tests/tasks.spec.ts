@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks } from '../src/client/tasks.ts'
 import { dismissDone, EMPTY_DONE, reduceDone, sameDone, type DoneState } from '../src/client/dismissals.ts'
@@ -25,8 +25,7 @@ function list(rows: SessionSummary[]): SessionListState {
     ids: rows.map((row) => row.id),
     byId: Object.fromEntries(rows.map((row) => [row.id, row])),
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
+    projectionsBySession: {},
   }
 }
 
@@ -37,6 +36,7 @@ function statusOf(entries: Record<string, Partial<SessionStatus>>): SessionStatu
       running: undefined,
       pendingInteraction: undefined,
       completionUnread: false,
+      completionFailed: false,
       ...facts,
     })
   }
