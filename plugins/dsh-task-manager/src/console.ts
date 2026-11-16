@@ -30,6 +30,12 @@ export function agentSessionId(agent: ReplyTarget): string | undefined {
   return typeof nested === 'string' && nested !== '' ? nested : undefined
 }
 
+/** 在某个仓库里跑一条 git 命令。 */
+export async function git(repo: string, args: string[]): Promise<string> {
+  const { stdout } = await run('git', ['-C', repo, ...args], { timeout: 60_000 })
+  return stdout.trim()
+}
+
 /** git 仓库根路径；不是仓库、目录不存在或 git 不可用时返回 undefined。 */
 export async function gitRootOf(dir: string): Promise<string | undefined> {
   try {

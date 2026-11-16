@@ -3,6 +3,7 @@
  * 只测服务层（route 是十行转发，host 面没有身份语义）。
  */
 import { describe, expect, it } from 'vitest'
+import { execFile } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -88,6 +89,59 @@ describe('card questions and answers', () => {
       expect(state.projects?.['/tmp']?.sources).toEqual(['inbox', 'ci'])
       await expect(service.setProjectSources('/nope', ['inbox'])).rejects.toThrow(/no project manager/)
     } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('runs the execution session in a task worktree when the project is a git repo', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'task-manager-repo-'))
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-exec-'))
+    try {
+      await execFile('git', ['init', '-q', repo])
+      await execFile('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init'])
+      const store = new TaskStore(dir)
+      const created: Array<{ cwd?: string; agentPreset?: string }> = []
+      const service = createTaskManager({
+        store,
+        captains: new CaptainStore(dir),
+        consoleStore: new ConsoleStore(dir),
+        resolveRuntime: () => ({
+          subagents: new FakeSubagents(),
+          agents: new FakeAgents(),
+          sessionController: {
+            create: async (request) => {
+              created.push(request)
+              return { sessionId: 'session-exec-1' }
+            },
+            resolveAgent: async () => ({ agent: { followup: () => undefined } }),
+          },
+        }),
+        now: () => 2_000,
+      })
+      await store.mutate((tasks) => {
+        tasks.push({
+          id: 'abcdef123456',
+          title: '示例',
+          content: '内容',
+          status: 'not-started',
+          runMode: 'cwd',
+          directory: repo,
+          project: repo,
+          dispatchRound: 0,
+          needsFinalReview: false,
+          createdAt: 1,
+          updatedAt: 1,
+        })
+      })
+      const result = await service.startExecution('abcdef123456')
+      expect(result.status).toBe('in-progress')
+      expect(created[0]?.cwd).toBe(`${repo}-abcdef12`)
+      expect(created[0]?.agentPreset).toBe('all')
+      const task = (await service.list()).find((item) => item.id === 'abcdef123456')
+      expect(task?.worktreeBranch).toBe('task/abcdef12')
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(`${repo}-abcdef12`, { recursive: true, force: true })
       await rm(dir, { recursive: true, force: true })
     }
   })

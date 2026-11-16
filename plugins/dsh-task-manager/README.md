@@ -16,7 +16,7 @@ DSH Web GUI 任务管理器（纯 profile-bundle 覆盖层，**零官方源码�
 |---|---|
 | 指派（GUI → 大管理器） | `POST /plugins/dsh-task-manager/dispatch` `{text, cwd?, sources?}` → 预设 `task-console-global` 的会话 |
 | 派单（大管理器 → 项目管理器） | 模型工具 `task_dispatch_project`（建卡 + 投简报），预设 `task-console-project` |
-| 起执行会话 | `task_start_execution` / `POST /start-execution` `{taskId}`：项目目录里开普通会话（预设 `all`）+ 投开工简报，卡片转 in-progress |
+| 起执行会话 | `task_start_execution` / `POST /start-execution` `{taskId}`：**在 `task/<前 8 位>` 分支的独立 worktree 里**开普通会话（预设 `all`）+ 投开工简报，卡片转 in-progress（不是 git 仓库时退回项目目录） |
 | 问题 / 下一步 | `task_question` / `task_next_step`（项目管理器写卡），面板「问题 / 下一步」两列筛出来 |
 | 用户拍板 | 面板逐条答复 → `POST /answer` `{taskId, questionId, text}` → 写进卡片并投回该项目管理器 |
 | 触发器订阅 | `task_project_sources` `{project, sources[]}`：订阅挂在**项目**上（`console.json`），任务卡只记本单引用 |

@@ -23,7 +23,7 @@
  * owns the list) via applyReportHuman().
  */
 import { randomUUID } from 'node:crypto'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   STATUSES,
   type CaptainRecord,
@@ -58,6 +58,7 @@ import {
   PROJECT_MANAGER_PRESET,
   createSessionOf,
   deliverToManager,
+  git,
   ensureManagerSession,
   gitRootOf,
 } from './console.ts'
@@ -321,6 +322,32 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     return agent
   }
 
+  /**
+   * 为一张任务卡准备 worktree（分支 `task/<前 8 位>`）。不是 git 仓库、或分支/目录已存在时
+   * 返回 undefined，执行会话就落在项目目录里——失败不阻断开工。
+   */
+  const prepareWorktree = async (
+    project: string,
+    taskId: string,
+  ): Promise<{ dir: string; branch: string } | undefined> => {
+    const root = await gitRootOf(project)
+    if (root === undefined) return undefined
+    const branch = `task/${taskId.slice(0, 8)}`
+    const dir = join(dirname(root), `${basename(root)}-${taskId.slice(0, 8)}`)
+    try {
+      await git(root, ['worktree', 'add', dir, '-b', branch])
+      return { dir, branch }
+    } catch {
+      // 分支或目录已存在（重跑同一张卡）：直接复用那个 worktree。
+      try {
+        const listed = await git(root, ['worktree', 'list', '--porcelain'])
+        return listed.includes(`worktree ${dir}`) ? { dir, branch } : undefined
+      } catch {
+        return undefined
+      }
+    }
+  }
+
   /** 读最新落盘状态、改一张任务卡、写回（并发安全，走 store 的写队列）。 */
   const mutateTask = (taskId: string, fn: (task: TaskRecord) => void): Promise<TaskRecord> => {
     return deps.store.mutate((tasks) => {
@@ -485,17 +512,21 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const target = existing.find((item) => item.id === taskId)
       if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} does not exist`)
       const project = target.project ?? target.directory
-      const created = await create({ cwd: project, agentPreset: options.agentPreset ?? 'all' })
+      // 只产 patch：执行会话跑在独立 worktree 分支上，宿主侧从不 push。
+      const worktree = await prepareWorktree(project, taskId)
+      const workdir = worktree?.dir ?? project
+      const created = await create({ cwd: workdir, agentPreset: options.agentPreset ?? 'all' })
       const sessionId = created.sessionId
       if (sessionId === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the execution session was created without a session id')
       }
       const task = await mutateTask(taskId, (record) => {
         record.status = 'in-progress'
-        record.consoleSessionId = record.consoleSessionId ?? undefined
+        record.directory = workdir
+        if (worktree !== undefined) record.worktreeBranch = worktree.branch
         record.conversations = [
           ...(record.conversations ?? []),
-          { id: sessionId, shortId: sessionId.replace(/^session-/, '').slice(0, 8), cwd: project },
+          { id: sessionId, shortId: sessionId.replace(/^session-/, '').slice(0, 8), cwd: workdir },
         ]
       })
       await deliverHumanMessage(deps.resolveRuntime(), sessionId, buildExecutionBrief({ task, project }))
