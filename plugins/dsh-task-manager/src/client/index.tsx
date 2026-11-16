@@ -2,11 +2,10 @@
  * dsh-task-manager — browser half.
  *
  * Two contributions, both additive over the official GUI:
- *  1. A Task Commander entry in the sidebar top area (DOM-injected next to the
- *     New Session button). Clicking it switches the center conversation area to
- *     the task panel (same mechanism as the official Automations tab).
- *  2. A `conversation.view` entry ("task-manager") that renders the full task
- *     panel: a new-task dialog, the task list, and a task detail view.
+ *  1. A sidebar panel entry ("task-manager"), seated in the sidebar icon row at
+ *     the same level as the other plugin pages.
+ *  2. A `main` panel behind that entry, rendering the full task console: a
+ *     new-task dialog, the task list, and a task detail view.
  *
  * The panel talks to the host half over same-origin HTTP routes on
  * `/plugins/dsh-task-manager/*`. Nothing in this half touches the filesystem;
@@ -29,14 +28,18 @@ interface Translate {
 }
 interface Slots {
   inject(name: string, register: () => void | (() => void)): void
+  /** Seat options: `id` for list slots, `key` for the keyed `main` slot. */
   register(
     options: {
       readonly name: string
-      readonly id: string
+      readonly id?: string
+      readonly key?: string
       readonly order?: number
       readonly label?: string | (() => string)
+      /** Locale namespace the seat re-renders on. */
+      readonly locale?: string
     },
-    component: ComponentType,
+    component: ComponentType<any>,
   ): () => void
 }
 interface Locale {
@@ -351,6 +354,20 @@ function runModeLabel(t: Translate, mode: RunMode): string {
 
 /** Inline icon normalized to the shell's 18px navigation glyph size. */
 const ICON = '<svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M6.5 6.5v7"/></svg>'
+/** Sidebar panel icon for the task console (same glyph the old row entry used). */
+function SidebarIcon(props: { size?: number }): ReactElement {
+  const size = props.size ?? 18
+  return (
+    <svg
+      viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor"
+      strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+    >
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="M2 6.5h12M6.5 6.5v7" />
+    </svg>
+  )
+}
+
 const BACK_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>'
 
 /*
@@ -1287,92 +1304,41 @@ export function apply(ctx: ClientContext): void {
     currentLocaleId = (snapshot !== undefined && typeof snapshot.id === 'string') ? snapshot.id : 'zh'
   }
   syncLocale()
-  ctx.effect(() => ctx.locale.subscribe(() => { syncLocale(); renderLabel() }), 'dsh-task-manager: locale subscription')
+  ctx.effect(() => ctx.locale.subscribe(() => { syncLocale() }), 'dsh-task-manager: locale subscription')
 
-  // ── Sidebar entry (low-overhead DOM injection) ────────────────────────────
-  let entry: HTMLButtonElement | undefined
-  let rootEl: HTMLElement | undefined
-  let placed = false
+  // ── Sidebar icon entry + main panel (the seats the Super Agent console uses) ──
+  // The entry used to be DOM-injected under the sidebar title and to borrow the
+  // conversation view ring. It is now a real sidebar panel that owns its own main
+  // panel, so it sits at the same level as the other plugin pages.
+  const PANEL_ID = 'task-manager'
+  const PANEL_ORDER = 12
 
-  const renderLabel = (): void => {
-    if (entry === undefined) return
-    const labelNode = entry.querySelector('.dsh-taskm-side-label')
-    if (labelNode !== null) labelNode.textContent = pick('sideLabel')
-    entry.setAttribute('aria-label', pick('sideLabel'))
-    entry.setAttribute('title', pick('sideLabel'))
+  /** Fail-open seat probe: an absent ledger reads as "not seated" and mounts. */
+  const seated = (slot: string, field: string, value: string): boolean => {
+    try {
+      const lines = (ctx.slots as unknown as {
+        entries?: (s: string) => Array<{ options?: Record<string, unknown> }>
+      }).entries?.(slot)
+      return Array.isArray(lines)
+        && lines.some(line => line?.options !== undefined && line.options[field] === value)
+    } catch { return false }
   }
 
-  const placeEntry = (): void => {
-    if (placed || entry === undefined || rootEl === undefined) return
-    if (entry.parentElement === rootEl) {
-      placed = true
-      rootObserver.observe(rootEl, { childList: true, subtree: true })
-      return
-    }
-    const newSession = rootEl.querySelector<HTMLButtonElement>('button[class*="newSession"]')
-    if (newSession === null) return
-    rootEl.insertBefore(entry, newSession.nextElementSibling)
-    if (entry.parentElement === rootEl) {
-      placed = true
-      rootObserver.observe(rootEl, { childList: true, subtree: true })
-    }
+  if (!seated('main', 'key', PANEL_ID)) {
+    ctx.slots.inject('main', () => ctx.slots.register({
+      name: 'main',
+      key: PANEL_ID,
+      locale: NS,
+    }, () => <TaskView />))
   }
 
-  const findRoot = (): HTMLElement | undefined => {
-    const column = document.querySelector<HTMLElement>('[data-pane="sidebar"], [class*="sidebarCol"]')
-    if (column === null) return undefined
-    return column.querySelector<HTMLElement>('[class*="logoRow"]')?.parentElement
-      ?? (column.firstElementChild as HTMLElement | null) ?? undefined
+  if (!seated('sidebar.panellist', 'id', PANEL_ID)) {
+    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+      name: 'sidebar.panellist',
+      id: PANEL_ID,
+      order: PANEL_ORDER,
+      label: () => pick('sideLabel'),
+      locale: NS,
+    }, (props: { size?: number }) => <SidebarIcon size={props.size} />))
   }
-
-  // Global observer: only active until the entry is placed, then disconnected
-  // so streaming conversation output cannot trigger any plugin work.
-  const waitObserver = new MutationObserver(() => {
-    if (placed) { waitObserver.disconnect(); return }
-    if (rootEl !== undefined && !rootEl.isConnected) rootEl = undefined
-    if (rootEl === undefined) rootEl = findRoot()
-    if (rootEl === undefined) return
-    placeEntry()
-  })
-
-  // Narrow observer: after placement, self-heal the entry if a sidebar
-  // re-render displaces it. Scoped to the sidebar root only.
-  const rootObserver = new MutationObserver(() => {
-    if (rootEl === undefined || !rootEl.isConnected) {
-      rootObserver.disconnect()
-      placed = false
-      rootEl = undefined
-      waitObserver.observe(document.body, { childList: true, subtree: true })
-      return
-    }
-    if (entry === undefined || !rootEl.contains(entry)) {
-      const newSession = rootEl.querySelector<HTMLButtonElement>('button[class*="newSession"]')
-      if (newSession !== null && entry !== undefined) rootEl.insertBefore(entry, newSession.nextElementSibling)
-    }
-  })
-
-  ctx.effect(() => {
-    entry = document.createElement('button')
-    entry.type = 'button'
-    entry.className = 'dsh-taskm-side'
-    entry.innerHTML = `<span class="dsh-taskm-side-icon">${ICON}</span><span class="dsh-taskm-side-label"></span>`
-    entry.addEventListener('click', () => { activateTaskView(pick) })
-    renderLabel()
-    rootEl = findRoot()
-    if (rootEl !== undefined) placeEntry()
-    else waitObserver.observe(document.body, { childList: true, subtree: true })
-    return () => {
-      waitObserver.disconnect()
-      rootObserver.disconnect()
-      if (entry !== undefined && entry.parentElement !== null) entry.remove()
-    }
-  }, 'dsh-task-manager: sidebar entry')
-
-  // ── Task view in the official conversation view ring ──────────────────────
-  ctx.slots.inject('conversation.view', () => ctx.slots.register({
-    name: 'conversation.view',
-    id: 'task-manager',
-    order: 30,
-    label: () => pick('tabLabel'),
-  }, (props: { sessionId?: string }) => <TaskView sessionId={props.sessionId} />))
 }

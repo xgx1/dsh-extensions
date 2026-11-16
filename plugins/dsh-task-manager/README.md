@@ -2,7 +2,11 @@
 
 DSH Web GUI 任务管理器（纯 profile-bundle 覆盖层，**零官方源码修改**）。宿主半侧负责任务持久化与 git worktree 操作，浏览器半侧提供一个「任务管理」主视图：新建对话框 → 任务列表 → 任务详情。
 
-点击侧边栏标题下方的 **任务管理 / Task Commander** 按钮，把中间主区域（AI 对话输入输出面板）**整区切换**成任务面板——与官方「Automations」面板同款的主视图切换（`conversation.view` 视图环）。
+点击侧边栏图标行里的 **任务管理 / Task Commander** 入口（与「插件」「自动化任务」「Super Agent」同一层级），主区域打开它自己的面板：新建任务对话框 → 任务列表 → 任务详情。
+
+> 2026-11-16：入口从「侧栏标题下方的 DOM 注入按钮 + 借用 `conversation.view` 视图环」改成
+> 真正的侧栏面板（`sidebar.panellist`）+ 自己的主面板（`main`）——与官方插件页同款注册方式，
+> 不再抢对话视图的位置。
 
 ## 功能
 
@@ -134,8 +138,8 @@ systemctl --user restart dsh-web
 | 编排路由 `src/orchestration-routes.ts` | /captains、/assign、/report，错误码→HTTP 状态映射（404/403/400/409/502） |
 | worktree 操作 | 直接调用 `git` CLI：`worktree list --porcelain` 枚举、`worktree add <path> -b <branch>` 创建；仓库根用 `git rev-parse --show-toplevel` 从「当前目录」（活跃会话 cwd → 首个 workspace → 进程 cwd）向上解析 |
 | 「接手过此任务的对话」 | 读时派生：枚举 `ctx.sessions.list()`，匹配 `header.cwd` 等于（或位于）任务目录的会话 |
-| 浏览器半侧 `src/client/index.tsx` | 侧边栏入口（DOM 注入 New Session 之后）+ `conversation.view` 视图（`TaskView`：NewTaskDialog / TaskList / TaskDetail 三个 React 组件）；与宿主经同源 `fetch('/plugins/dsh-task-manager/...')` 通信 |
-| 视图切换 | 点击侧边栏按钮 → 找到主区域 header 中 label 匹配的 `[role="tab"]` 并 `click()`（官方 Automations 同款 `actions.setView` 机制） |
+| 浏览器半侧 `src/client/index.tsx` | `sidebar.panellist` 侧栏入口 + `main` 主面板（`TaskView`：NewTaskDialog / TaskList / TaskDetail 三个 React 组件）；与宿主经同源 `fetch('/plugins/dsh-task-manager/...')` 通信 |
+| 入口注册 | `ctx.slots.register({ name: 'sidebar.panellist', id, order, label, locale })` + `register({ name: 'main', key, locale })`；重复挂载用 `ctx.slots.entries(slot)` 探测已有注册（HMR 安全） |
 | locale | 官方 `locale.register('dshTaskManager', {zh, en})` + `getLocale()` 跟随会话语言 |
 
 ## 开发
