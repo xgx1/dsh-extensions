@@ -13,11 +13,25 @@ export interface ReplyTarget {
   followup(message: unknown): void
 }
 
+/** 建会话的入参（结构化切片，等于 sessionController.create 的请求）。 */
+export interface SessionCreateRequest {
+  /** 复用已存在的会话时给它的 id；省略则新开一个。 */
+  sessionId?: string
+  /** 会话自有的工作目录；与 workspaceId 二选一。 */
+  cwd?: string
+  /** 会话加入的工作区；与 cwd 二选一。 */
+  workspaceId?: string
+  /** 会话运行的预设 id。 */
+  agentPreset?: string
+}
+
 /** 回复投递需要的运行时服务；两者都可能缺席，缺席时明确失败而不是静默丢弃。 */
 export interface ReplyRuntime {
   agents?: { get(sessionId: string): ReplyTarget | undefined }
   sessionController?: {
     resolveAgent(sessionId: string): Promise<{ agent?: ReplyTarget; error?: unknown }>
+    /** 任务台的两层管理器用它在无宿主会话的情况下建 / 唤醒会话（ADR-0014）。 */
+    create?(request: SessionCreateRequest): Promise<{ sessionId?: string }>
   }
 }
 

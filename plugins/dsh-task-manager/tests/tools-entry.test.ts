@@ -65,14 +65,23 @@ describe('tools-only 入口（dsh-task-manager/tools，ADR-0004）', () => {
     expect(inject).toEqual(['tools'])
   })
 
-  it('a1 apply 后恰好 7 个 task_* 工具，名字与 MANAGEMENT_TOOL_NAMES 5+2 逐字一致', async () => {
+  it('a1 apply 后恰好 12 个 task_* 工具：5+2+5', async () => {
     const { dir, service } = await realService()
     try {
       const { ctx, defs, provided } = callerScope({ taskManager: service })
       apply(ctx)
       const names = [...defs.keys()].sort()
-      expect(names).toEqual([...MANAGEMENT_TOOL_NAMES, 'task_claim', 'task_report'].sort())
-      expect(names).toHaveLength(7)
+      expect(names).toEqual([
+        ...MANAGEMENT_TOOL_NAMES,
+        'task_claim',
+        'task_report',
+        'task_console_state',
+        'task_dispatch_project',
+        'task_question',
+        'task_next_step',
+        'task_start_execution',
+      ].sort())
+      expect(names).toHaveLength(12)
       // 无服务泄漏：入口绝不 provide（服务只属于 host bundle 主入口）
       expect(provided).toEqual([])
       // deny 的 5 个管理工具名字都真实存在（队长面 toolFilter 依赖）
@@ -103,7 +112,7 @@ describe('tools-only 入口（dsh-task-manager/tools，ADR-0004）', () => {
     try {
       const { ctx, effectLabels } = callerScope({ taskManager: service })
       apply(ctx)
-      expect(effectLabels).toHaveLength(7)
+      expect(effectLabels).toHaveLength(12)
       expect(effectLabels.every((label) => label.startsWith('task-manager: task_'))).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })

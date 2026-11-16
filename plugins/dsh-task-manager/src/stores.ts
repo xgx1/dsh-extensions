@@ -69,6 +69,77 @@ abstract class JsonStore<T> {
   }
 }
 
+/** 任务台管理器注册表：全局大管理器 + 每个项目一个项目管理器（ADR-0014）。 */
+export interface ConsoleManagerRecord {
+  /** 管理器会话 id。 */
+  sessionId: string
+  /** 该管理器的工作目录（项目主键的 cwd 或控制台目录）。 */
+  cwd: string
+  /** 会话运行时使用的预设 id。 */
+  preset: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** console.json 的持久形态。 */
+export interface ConsoleState {
+  global?: ConsoleManagerRecord
+  projects?: Record<string, ConsoleManagerRecord>
+}
+
+/** 管理器注册表 store：console.json。 */
+export class ConsoleStore extends JsonStore<ConsoleState> {
+  constructor(dir: string) {
+    super(dir, 'console.json')
+  }
+
+  protected parse(raw: string): ConsoleState {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return {}
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    const source = parsed as Record<string, unknown>
+    const state: ConsoleState = {}
+    const global = normalizeManager(source['global'])
+    if (global !== undefined) state.global = global
+    const projectsRaw = source['projects']
+    if (typeof projectsRaw === 'object' && projectsRaw !== null && !Array.isArray(projectsRaw)) {
+      const projects: Record<string, ConsoleManagerRecord> = {}
+      for (const [key, value] of Object.entries(projectsRaw as Record<string, unknown>)) {
+        const record = normalizeManager(value)
+        if (record !== undefined) projects[key] = record
+      }
+      if (Object.keys(projects).length > 0) state.projects = projects
+    }
+    return state
+  }
+
+  protected empty(): ConsoleState {
+    return {}
+  }
+
+  protected serialize(state: ConsoleState): string {
+    return JSON.stringify(state, null, 2)
+  }
+}
+
+/** 容错读一条管理器记录：缺 sessionId/cwd 的条目丢弃。 */
+function normalizeManager(raw: unknown): ConsoleManagerRecord | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const source = raw as Record<string, unknown>
+  const sessionId = source['sessionId']
+  const cwd = source['cwd']
+  if (typeof sessionId !== 'string' || sessionId === '' || typeof cwd !== 'string' || cwd === '') return undefined
+  const now = Date.now()
+  const createdAt = typeof source['createdAt'] === 'number' ? source['createdAt'] : now
+  const updatedAt = typeof source['updatedAt'] === 'number' ? source['updatedAt'] : createdAt
+  const preset = typeof source['preset'] === 'string' && source['preset'] !== '' ? source['preset'] : ''
+  return { sessionId, cwd, preset, createdAt, updatedAt }
+}
+
 /** Task list store: a JSON array of TaskRecord entries. */
 export class TaskStore extends JsonStore<TaskRecord[]> {
   constructor(dir: string) {

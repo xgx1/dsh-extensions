@@ -45,6 +45,198 @@ export function registerTaskTools(
     effect(() => registrar.register(definition), label)
   }
 
+  // ── 两层管理器（ADR-0014）────────────────────────────────────────────────
+  register(defineTool({
+    name: 'task_console_state',
+    description:
+      '查任务台的管理器注册表：全局大管理器是哪个会话、每个项目（git 仓库根）的项目管理器是哪个会话、' +
+      '以及各项目现有几张未关单的任务。路由或巡查前先用它看看现状。',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          global: { type: 'string', description: '大管理器会话 id；尚未创建时缺失。' },
+          projects: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                project: { type: 'string', required: true },
+                sessionId: { type: 'string', required: true },
+                open: { type: 'integer', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => {
+        const rows = (value.projects ?? []) as Array<{ project: string; sessionId: string; open: number }>
+        const lines = [
+          `大管理器：${value.global === undefined ? '未创建' : short(String(value.global))}`,
+          ...(rows.length === 0
+            ? ['项目管理器：还没有']
+            : rows.map((row) => `- ${row.project}（${short(row.sessionId)}）未关单 ${row.open} 张`)),
+        ]
+        return [{ type: 'text', text: lines.join('\n') }]
+      },
+    },
+    execute: async () => {
+      const state = await service.consoleState()
+      const tasks = await service.list()
+      const projects = Object.entries(state.projects ?? {}).map(([project, record]) => ({
+        project,
+        sessionId: record.sessionId,
+        open: tasks.filter((task) => task.project === project && task.status !== 'done').length,
+      }))
+      return state.global === undefined ? { projects } : { global: state.global.sessionId, projects }
+    },
+  }), 'task-manager: task_console_state tool')
+
+  register(defineTool({
+    name: 'task_dispatch_project',
+    description:
+      '把一张任务派给某个项目的项目管理器：确保该项目的项目管理器会话存在（首次创建，之后复用），' +
+      '建一张任务卡并把简报投给项目管理器。大管理器只做这一步；动手执行是项目管理器与执行会话的事。',
+    parameters: {
+      text: { type: 'string', required: true, description: '任务正文（用户的原始描述，不要改写需求）。' },
+      project: { type: 'string', description: '项目主键：git 仓库根路径（绝对路径）。省略时从 cwd 探测。' },
+      cwd: { type: 'string', description: '判断项目的目录提示；project 已给时可省略。' },
+      title: { type: 'string', description: '短标题（40 字内）；省略时取正文首行。' },
+      sources: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '本单订阅的触发器键（inbox / github / ci 等）；触发器配置本身挂在项目上。',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          project: { type: 'string', required: true },
+          managerSessionId: { type: 'string', required: true },
+          taskId: { type: 'string', required: true },
+          delivered: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `已派给项目管理器：${value.project}（会话 ${short(String(value.managerSessionId))}，任务 ${String(value.taskId).slice(0, 8)}，投递 ${value.delivered === 'live' ? '在线' : '冷恢复'}）。`,
+      }],
+    },
+    execute: async (args) => {
+      const input: { project?: string; cwd?: string; text: string; title?: string; sources?: string[] } = {
+        text: typeof args.text === 'string' ? args.text : '',
+      }
+      if (typeof args.project === 'string' && args.project !== '') input.project = args.project
+      if (typeof args.cwd === 'string' && args.cwd !== '') input.cwd = args.cwd
+      if (typeof args.title === 'string' && args.title !== '') input.title = args.title
+      if (Array.isArray(args.sources)) input.sources = args.sources.filter((item: unknown): item is string => typeof item === 'string')
+      return service.dispatchToProject(input)
+    },
+  }), 'task-manager: task_dispatch_project tool')
+
+  register(defineTool({
+    name: 'task_question',
+    description:
+      '在本任务卡上留一条待用户拍板的问题（不阻塞：你按推荐且保险的方式继续做别的）。' +
+      '能自己决定的不要留问题，直接 task_next_step 记下来。',
+    parameters: {
+      taskId: { type: 'string', required: true, description: '任务 id。' },
+      text: { type: 'string', required: true, description: '问题正文（一句话说清要用户定什么）。' },
+      recommendation: { type: 'string', description: '你推荐的答案；用户点一下就能采纳。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+          openQuestions: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `问题已落到任务卡（现 ${value.openQuestions} 条待答，状态 ${value.status}）。`,
+      }],
+    },
+    execute: async (args) => {
+      const task = await service.addQuestion(
+        String(args.taskId),
+        String(args.text),
+        typeof args.recommendation === 'string' ? args.recommendation : undefined,
+      )
+      return {
+        taskId: task.id,
+        status: task.status,
+        openQuestions: (task.questions ?? []).filter((item) => item.answer === undefined).length,
+      }
+    },
+  }), 'task-manager: task_question tool')
+
+  register(defineTool({
+    name: 'task_next_step',
+    description: '把一条已裁决的下一步动作记到任务卡上（你决定的和人决定的都记，写清是谁定的）。',
+    parameters: {
+      taskId: { type: 'string', required: true, description: '任务 id。' },
+      text: { type: 'string', required: true, description: '下一步动作（动词开头，一句话）。' },
+      decidedBy: { type: 'string', enum: ['project-manager', 'human'], description: '谁裁决的；默认 project-manager。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', required: true },
+          nextSteps: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `下一步已记录（共 ${value.nextSteps} 条）。` }],
+    },
+    execute: async (args) => {
+      const task = await service.addNextStep(
+        String(args.taskId),
+        String(args.text),
+        args.decidedBy === 'human' ? 'human' : 'project-manager',
+      )
+      return { taskId: task.id, nextSteps: (task.nextSteps ?? []).length }
+    },
+  }), 'task-manager: task_next_step tool')
+
+  register(defineTool({
+    name: 'task_start_execution',
+    description:
+      '为这张任务卡起一个执行会话（项目目录里的普通会话），投开工简报并把卡片转 in-progress。' +
+      '允许清单 v0.1：只产 patch，不 push、不开 PR、不碰受保护分支、不跨仓库。',
+    parameters: {
+      taskId: { type: 'string', required: true, description: '任务 id。' },
+      agentPreset: { type: 'string', description: '执行会话的预设 id；省略用 standard。' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string', required: true },
+          sessionId: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `执行会话已起：${short(String(value.sessionId))}，卡片状态 ${value.status}。`,
+      }],
+    },
+    execute: async (args) => {
+      const preset = typeof args.agentPreset === 'string' && args.agentPreset !== '' ? args.agentPreset : undefined
+      return service.startExecution(String(args.taskId), preset === undefined ? {} : { agentPreset: preset })
+    },
+  }), 'task-manager: task_start_execution tool')
+
   register(defineTool({
     name: 'task_assign',
     description:

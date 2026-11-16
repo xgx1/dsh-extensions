@@ -67,12 +67,21 @@ async function rig() {
 }
 
 describe('工具名契约（t11 预设与 CAPTAIN_TOOL_FILTER 对齐）', () => {
-  it('注册恰好 7 个工具，名字与 MANAGEMENT_TOOL_NAMES + task_claim/task_report 逐字一致', async () => {
+  it('注册恰好 12 个工具：管理 5 + 队长 2 + 任务台 5', async () => {
     const t = await rig()
     try {
       const names = [...t.defs.keys()].sort()
-      expect(names).toEqual([...MANAGEMENT_TOOL_NAMES, 'task_claim', 'task_report'].sort())
-      expect(names).toHaveLength(7)
+      expect(names).toEqual([
+        ...MANAGEMENT_TOOL_NAMES,
+        'task_claim',
+        'task_report',
+        'task_console_state',
+        'task_dispatch_project',
+        'task_question',
+        'task_next_step',
+        'task_start_execution',
+      ].sort())
+      expect(names).toHaveLength(12)
       // 队长面 deny 的 5 个名字都真实存在于注册表（否则 restrict() 会在建会话时报 unknown name）
       for (const denied of CAPTAIN_TOOL_FILTER.deny) {
         expect(t.defs.has(denied)).toBe(true)

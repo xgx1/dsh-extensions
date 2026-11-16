@@ -23,21 +23,38 @@
  * owns the list) via applyReportHuman().
  */
 import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   STATUSES,
   type CaptainRecord,
   OrchestratorError,
   type Status,
+  type TaskNextStep,
+  type TaskQuestion,
   type TaskRecord,
+  applyAnswerToTask,
   applyReportToTask,
   buildCharterPersona,
+  buildAnswerText,
+  buildConsoleAssignment,
   buildDispatchBrief,
+  buildExecutionBrief,
+  buildProjectBrief,
   buildNudgeText,
   buildReplyText,
   createOutboundMessage,
 } from './records.ts'
-import { CaptainStore, TaskStore, summarizeCaptains } from './stores.ts'
+import { type ReplyRuntime } from './managed-reply.ts'
+import { CaptainStore, ConsoleStore, TaskStore, summarizeCaptains, type ConsoleState } from './stores.ts'
+import {
+  GLOBAL_MANAGER_PRESET,
+  PROJECT_MANAGER_PRESET,
+  agentSessionId,
+  deliverToManager,
+  ensureManagerSession,
+  gitRootOf,
+} from './console.ts'
+import { deliverHumanMessage } from './managed-reply.ts'
 
 /** Service key published on the host context (consumed by M2 tools via ctx.get). */
 export const TASK_MANAGER_SERVICE = 'taskManager'
@@ -101,6 +118,8 @@ export interface SubagentsLike {
 export interface OrchestratorRuntime {
   subagents?: SubagentsLike
   agents?: AgentsRegistryLike
+  /** 会话控制器：两层管理器用它建 / 唤醒没有宿主会话的会话（ADR-0014）。 */
+  sessionController?: ReplyRuntime['sessionController']
 }
 
 /** Dependencies of the taskManager service. */
@@ -109,6 +128,10 @@ export interface TaskManagerDeps {
   captains: CaptainStore
   /** Lazy runtime resolution — re-read on every operation so late-mounting services appear. */
   resolveRuntime: () => OrchestratorRuntime
+  /** 两层管理器注册表（ADR-0014）；缺失时管理器相关方法明确报错。 */
+  consoleStore?: ConsoleStore
+  /** 大管理器会话的工作目录（默认 stateDir 下的 console 目录）。 */
+  consoleCwd?: string
   /** Testable clock. */
   now?: () => number
 }
@@ -173,6 +196,53 @@ export interface TaskManagerService {
   captains(): Promise<Array<CaptainRecord & { category: string; taskCount: number }>>
   /** 章程编辑（upsert：可先于首次派发预写章程）。 */
   setCharter(category: string, charter: string): Promise<CaptainRecord & { category: string }>
+
+  // ── 两层管理器（ADR-0014）────────────────────────────────────────────────
+  /**
+   * 管理器注册表快照（大管理器 + 每项目一个项目管理器）。
+   */
+  consoleState(): Promise<ConsoleState>
+  /**
+   * 用户「指派任务」：把文本投给大管理器，由它判断项目归属。
+   * @param text - 用户粘贴的任务正文。
+   * @param options.cwd - 判断项目归属时的提示目录（通常是当前工作区）。
+   * @returns 大管理器会话 id 与投递方式。
+   */
+  assignToConsole(text: string, options?: { cwd?: string }): Promise<{ managerSessionId: string; delivered: 'live' | 'resumed' }>
+  /**
+   * 大管理器派单：确保该项目的项目管理器存在，建一张任务卡并把简报投给它。
+   * @param input.project - 项目主键（git 根）；省略时从 `input.cwd` 探测。
+   * @param input.text - 任务正文。
+   * @param input.title - 短标题；省略时取正文首行。
+   * @param input.sources - 本单订阅的触发器键。
+   * @returns 项目键、项目管理器会话 id、新建的任务 id。
+   */
+  dispatchToProject(input: {
+    project?: string
+    cwd?: string
+    text: string
+    title?: string
+    sources?: string[]
+  }): Promise<{ project: string; managerSessionId: string; taskId: string; delivered: 'live' | 'resumed' }>
+  /**
+   * 项目管理器把一条待拍板的问题挂到任务卡上（ADR-0012：不阻塞继续）。
+   * @param recommendation - 系统推荐的答案，人类可直接采纳。
+   */
+  addQuestion(taskId: string, text: string, recommendation?: string): Promise<TaskRecord>
+  /**
+   * 项目管理器把一条已裁决的下一步挂到任务卡上。
+   * @param decidedBy - 谁裁决的：项目管理器自己，还是人类覆写。
+   */
+  addNextStep(taskId: string, text: string, decidedBy?: 'project-manager' | 'human'): Promise<TaskRecord>
+  /**
+   * 回答任务卡上的一条问题，并把答复转发给该任务的项目管理器。
+   * @returns 更新后的任务卡与投递方式（无项目管理器时为 none）。
+   */
+  answerQuestion(taskId: string, questionId: string, answer: string): Promise<{ task: TaskRecord; delivered: 'live' | 'resumed' | 'none' }>
+  /**
+   * 起执行会话：在项目目录里开一个普通会话（默认预设 standard），投开工简报并转 in-progress。
+   */
+  startExecution(taskId: string, options?: { agentPreset?: string }): Promise<{ taskId: string; sessionId: string; status: Status }>
 }
 
 /** Create the taskManager service. Pure dependency injection, no cordis types. */
@@ -239,7 +309,166 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     return agent
   }
 
+  /** 读最新落盘状态、改一张任务卡、写回（并发安全，走 store 的写队列）。 */
+  const mutateTask = (taskId: string, fn: (task: TaskRecord) => void): Promise<TaskRecord> => {
+    return deps.store.mutate((tasks) => {
+      const target = tasks.find((item) => item.id === taskId)
+      if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} does not exist`)
+      fn(target)
+      target.updatedAt = now()
+      return target
+    })
+  }
+
+  const requireConsoleStore = (): ConsoleStore => {
+    if (deps.consoleStore === undefined) {
+      throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the two-layer console needs a console store (deps.consoleStore)')
+    }
+    return deps.consoleStore
+  }
+
   const service: TaskManagerService = {
+    async consoleState() {
+      return requireConsoleStore().load()
+    },
+
+    async assignToConsole(text, options = {}) {
+      const body = typeof text === 'string' ? text.trim() : ''
+      if (body === '') throw new OrchestratorError('INVALID_INPUT', 'a task description is required')
+      const store = requireConsoleStore()
+      const runtime = deps.resolveRuntime()
+      const manager = await ensureManagerSession(runtime, store, undefined, {
+        cwd: deps.consoleCwd ?? join(dirname(deps.store.path), 'console'),
+        preset: GLOBAL_MANAGER_PRESET,
+      })
+      const hint = options.cwd !== undefined && options.cwd !== '' ? options.cwd : undefined
+      const delivered = await deliverToManager(runtime, manager.sessionId, buildConsoleAssignment(body, hint))
+      return { managerSessionId: manager.sessionId, delivered }
+    },
+
+    async dispatchToProject(input) {
+      const body = typeof input.text === 'string' ? input.text.trim() : ''
+      if (body === '') throw new OrchestratorError('INVALID_INPUT', 'a task description is required')
+      const hinted = input.project !== undefined && input.project !== ''
+        ? input.project
+        : input.cwd
+      if (hinted === undefined || hinted === '') {
+        throw new OrchestratorError('INVALID_INPUT', 'a project (git root or working directory) is required')
+      }
+      const absolute = resolve(hinted)
+      const project = (await gitRootOf(absolute)) ?? absolute
+      const store = requireConsoleStore()
+      const runtime = deps.resolveRuntime()
+      const manager = await ensureManagerSession(runtime, store, project, {
+        cwd: project,
+        preset: PROJECT_MANAGER_PRESET,
+      })
+      const stamp = now()
+      const rawTitle = input.title !== undefined && input.title.trim() !== '' ? input.title.trim() : ''
+      const title = rawTitle === '' ? (body.split('\n')[0] ?? '').slice(0, 60) : rawTitle
+      const sources = Array.isArray(input.sources)
+        ? input.sources.filter((item): item is string => typeof item === 'string' && item !== '')
+        : []
+      const task = await deps.store.mutate((tasks) => {
+        const record: TaskRecord = {
+          id: randomUUID(),
+          title,
+          content: body,
+          status: 'not-started',
+          runMode: 'cwd',
+          directory: project,
+          consoleSessionId: manager.sessionId,
+          project,
+          sources,
+          dispatchRound: 0,
+          needsFinalReview: false,
+          createdAt: stamp,
+          updatedAt: stamp,
+        }
+        tasks.push(record)
+        return record
+      })
+      const delivered = await deliverToManager(runtime, manager.sessionId, buildProjectBrief({ task, project }))
+      return { project, managerSessionId: manager.sessionId, taskId: task.id, delivered }
+    },
+
+    async addQuestion(taskId, text, recommendation) {
+      const body = typeof text === 'string' ? text.trim() : ''
+      if (body === '') throw new OrchestratorError('INVALID_INPUT', 'question text is required')
+      const stamp = now()
+      const question: TaskQuestion = {
+        id: randomUUID(),
+        text: body,
+        at: stamp,
+        ...(recommendation !== undefined && recommendation.trim() !== '' ? { recommendation: recommendation.trim() } : {}),
+      }
+      return mutateTask(taskId, (task) => {
+        task.questions = [...(task.questions ?? []), question]
+      })
+    },
+
+    async addNextStep(taskId, text, decidedBy) {
+      const body = typeof text === 'string' ? text.trim() : ''
+      if (body === '') throw new OrchestratorError('INVALID_INPUT', 'next step text is required')
+      const step: TaskNextStep = {
+        id: randomUUID(),
+        text: body,
+        decidedBy: decidedBy === 'human' ? 'human' : 'project-manager',
+        at: now(),
+      }
+      return mutateTask(taskId, (task) => {
+        task.nextSteps = [...(task.nextSteps ?? []), step]
+      })
+    },
+
+    async answerQuestion(taskId, questionId, answer) {
+      const body = typeof answer === 'string' ? answer.trim() : ''
+      if (body === '') throw new OrchestratorError('INVALID_INPUT', 'an answer is required')
+      let answered: TaskQuestion | undefined
+      const task = await mutateTask(taskId, (target) => {
+        answered = applyAnswerToTask(target, { questionId, text: body, at: now() })
+      })
+      const managerSessionId = task.consoleSessionId
+      if (managerSessionId === undefined) return { task, delivered: 'none' }
+      try {
+        const delivered = await deliverToManager(
+          deps.resolveRuntime(),
+          managerSessionId,
+          buildAnswerText({ task, question: answered as TaskQuestion, answer: body }),
+        )
+        return { task, delivered }
+      } catch {
+        // 管理器会话丢了不该吞掉答复：卡片上的 answer 已经写进去了。
+        return { task, delivered: 'none' }
+      }
+    },
+
+    async startExecution(taskId, options = {}) {
+      const create = deps.resolveRuntime().sessionController?.create
+      if (create === undefined) {
+        throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController.create is unavailable')
+      }
+      const existing = await deps.store.load()
+      const target = existing.find((item) => item.id === taskId)
+      if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} does not exist`)
+      const project = target.project ?? target.directory
+      const created = await create({ cwd: project, agentPreset: options.agentPreset ?? 'all' })
+      const sessionId = created.sessionId
+      if (sessionId === undefined) {
+        throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the execution session was created without a session id')
+      }
+      const task = await mutateTask(taskId, (record) => {
+        record.status = 'in-progress'
+        record.consoleSessionId = record.consoleSessionId ?? undefined
+        record.conversations = [
+          ...(record.conversations ?? []),
+          { id: sessionId, shortId: sessionId.replace(/^session-/, '').slice(0, 8), cwd: project },
+        ]
+      })
+      await deliverHumanMessage(deps.resolveRuntime(), sessionId, buildExecutionBrief({ task, project }))
+      return { taskId, sessionId, status: task.status }
+    },
+
     async assign(taskId, category, options = {}) {
       if (typeof category !== 'string' || category.trim() === '') {
         throw new OrchestratorError('INVALID_INPUT', 'category must be a non-empty string')

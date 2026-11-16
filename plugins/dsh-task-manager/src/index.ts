@@ -29,7 +29,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { STATUSES, OrchestratorError, type ConversationSummary, type RunMode, type Status, type TaskRecord } from './records.ts'
 import { applyLatestReports, buildManagedReportMarkdown, readManagedCards, type ManagedCard } from './managed.ts'
 import { deliverHumanMessage, type ReplyRuntime } from './managed-reply.ts'
-import { CaptainStore, TaskStore } from './stores.ts'
+import { CaptainStore, ConsoleStore, TaskStore } from './stores.ts'
 import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
 import { registerOrchestrationRoutes, statusForError, type RouteRegistrar } from './orchestration-routes.ts'
 import { json, readJsonBody } from './http.ts'
@@ -223,13 +223,16 @@ export function apply(ctx: Context, config?: Config): void {
     : join(dshHome, 'task-manager')
   const store = new TaskStore(stateDir)
   const captains = new CaptainStore(stateDir)
+  const consoleStore = new ConsoleStore(stateDir)
   const taskManager = createTaskManager({
     store,
     captains,
+    consoleStore,
     // Lazy resolution so late-mounting services (headless boots) appear.
     resolveRuntime: () => ({
       subagents: ctx.get('subagents') as SubagentsLike | undefined,
       agents: ctx.get('agents') as AgentsRegistryLike | undefined,
+      sessionController: ctx.get('sessionController') as ReplyRuntime['sessionController'],
     }),
   })
   // Publish for the M2 model tools (consumed via ctx.get('taskManager')).
@@ -304,6 +307,92 @@ export function apply(ctx: Context, config?: Config): void {
         }
       },
     }), 'task-manager: state route')
+
+    // TEMP DEBUG: 会话控制器能力探针
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/debug-sc',
+      handler: async (_req, res) => {
+        const sc = ctx.get('sessionController' as never) as unknown as Record<string, unknown> | undefined
+        const result: Record<string, unknown> = {
+          hasCommands: sc?.['commands'] !== undefined,
+          hasAgents: sc?.['agents'] !== undefined,
+          hasListState: sc?.['listState'] !== undefined,
+          sameAsProperty: (ctx as unknown as { sessionController?: unknown }).sessionController === sc,
+          keys: sc === undefined ? [] : Object.keys(sc),
+        }
+        try {
+          const resolved = await (sc!['resolveAgent'] as (id: string) => Promise<unknown>)('session-does-not-exist')
+          result['resolveAgent'] = JSON.stringify(resolved).slice(0, 200)
+        } catch (error) {
+          result['resolveAgentError'] = error instanceof Error ? error.message : String(error)
+        }
+        json(res, 200, result)
+      },
+    }), 'task-manager: debug sc')
+
+    /** 任务台的两层管理器（ADR-0014）：注册表快照与「指派任务」。 */
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/console',
+      handler: async (_req, res) => {
+        try {
+          json(res, 200, { console: await taskManager.consoleState() })
+        } catch (error) {
+          json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'task-manager: console route')
+
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/assign',
+      handler: async (req, res) => {
+        try {
+          const body = await readJsonBody(req)
+          const text = typeof body['text'] === 'string' ? body['text'] : ''
+          const cwd = typeof body['cwd'] === 'string' && body['cwd'] !== '' ? body['cwd'] : undefined
+          const result = await taskManager.assignToConsole(text, cwd === undefined ? {} : { cwd })
+          json(res, 200, result)
+        } catch (error) {
+          json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'task-manager: assign route')
+
+    /** 卡片上一问一答：写进卡片并把答复转给项目管理器（ADR-0012）。 */
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/answer',
+      handler: async (req, res) => {
+        try {
+          const body = await readJsonBody(req)
+          const taskId = typeof body['taskId'] === 'string' ? body['taskId'] : ''
+          const text = typeof body['text'] === 'string' ? body['text'] : ''
+          const questionId = typeof body['questionId'] === 'string' && body['questionId'] !== '' ? body['questionId'] : undefined
+          const result = await taskManager.answerQuestion(taskId, questionId ?? '', text)
+          json(res, 200, result)
+        } catch (error) {
+          json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'task-manager: answer route')
+
+    /** 从面板直接起执行会话（与 task_start_execution 同一条路）。 */
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/start-execution',
+      handler: async (req, res) => {
+        try {
+          const body = await readJsonBody(req)
+          const taskId = typeof body['taskId'] === 'string' ? body['taskId'] : ''
+          const preset = typeof body['agentPreset'] === 'string' && body['agentPreset'] !== '' ? body['agentPreset'] : undefined
+          json(res, 200, await taskManager.startExecution(taskId, preset === undefined ? {} : { agentPreset: preset }))
+        } catch (error) {
+          json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'task-manager: start-execution route')
 
     ctx.effect(() => webServer.register({
       kind: 'exact',
@@ -433,6 +522,24 @@ export function apply(ctx: Context, config?: Config): void {
     }), 'task-manager: set-status route')
 
     // 纳管视图（ADR-0011）：卡片是 session_manager 状态的派生渲染，不落第二份任务表。
+    /** 任务卡上「按建议继续 / 自己答」：写回答复并投给该项目的项目管理器。 */
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/answer',
+      handler: async (req, res) => {
+        try {
+          const body = await readJsonBody(req)
+          const taskId = typeof body['taskId'] === 'string' ? body['taskId'] : ''
+          const questionId = typeof body['questionId'] === 'string' ? body['questionId'] : ''
+          const text = typeof body['text'] === 'string' ? body['text'] : ''
+          const out = await taskManager.answerQuestion(taskId, questionId, text)
+          json(res, 200, { task: out.task, delivered: out.delivered })
+        } catch (error) {
+          json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
+        }
+      },
+    }), 'task-manager: answer route')
+
     ctx.effect(() => webServer.register({
       kind: 'exact',
       path: '/plugins/dsh-task-manager/managed',

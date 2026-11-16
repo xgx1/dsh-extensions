@@ -97,9 +97,32 @@ interface Task {
   lastNudgeAt?: number
   /** 用户在任务卡片回复框里发出的最近一次回答。 */
   lastReply?: { text: string; at: number }
+  /** 所属项目管理器会话（ADR-0014 两层管理器）。 */
+  consoleSessionId?: string
+  /** 项目主键：git 仓库根路径。 */
+  project?: string
+  /** 待你拍板的问题（ADR-0012：非阻塞，落在卡片上）。 */
+  questions?: TaskQuestion[]
+  /** 项目管理器已裁决的下一步。 */
+  nextSteps?: TaskNextStep[]
   createdAt: number
   updatedAt: number
 }
+interface TaskQuestion {
+  id: string
+  text: string
+  /** 推荐答案；「按建议继续」就是把这段原样答复回去。 */
+  recommendation?: string
+  at: number
+  answer?: { text: string; at: number }
+}
+interface TaskNextStep {
+  id: string
+  text: string
+  decidedBy: 'project-manager' | 'human'
+  at: number
+}
+
 /** 纳管对话的卡片（来自 session-manager 的状态派生，不是本插件自己存的任务）。 */
 type ManagedStatus = 'in-progress' | 'done' | 'problem' | 'paused'
 interface ManagedQuestionItem {
@@ -200,6 +223,20 @@ const dicts: Record<string, Record<string, string>> = {
     pendingQuestion: 'Waiting for your reply',
     replyPlaceholder: 'Type your answer here…',
     sendReply: 'Send reply',
+    assignTitle: 'Hand a task to the managers',
+    assignPlaceholder: 'Paste the job here. The global manager picks the project and hands it to that project’s manager.',
+    assignButton: 'Assign',
+    assignSent: 'Sent to the global manager.',
+    assignError: 'Failed to hand the task over.',
+    todoOnly: 'Needs me',
+    allTasks: 'All',
+    questions: 'Waiting for you',
+    recommendation: 'Suggested',
+    adoptRecommendation: 'Go with the suggestion',
+    answerPlaceholder: 'Or answer it yourself…',
+    answerButton: 'Answer',
+    nextSteps: 'Decided next steps',
+    project: 'Project',
     replyError: 'Failed to send the reply.',
     lastReply: 'Your last reply',
   },
@@ -262,6 +299,20 @@ const dicts: Record<string, Record<string, string>> = {
     pendingQuestion: '等待你的回复',
     replyPlaceholder: '在这里回复…',
     sendReply: '发送回复',
+    assignTitle: '把任务交给管理器',
+    assignPlaceholder: '把要做的事贴在这里。大管理器判断属于哪个项目，再交给该项目的项目管理器。',
+    assignButton: '派下去',
+    assignSent: '已交给大管理器。',
+    assignError: '派发失败。',
+    todoOnly: '待我处理',
+    allTasks: '全部',
+    questions: '等你拍板',
+    recommendation: '建议',
+    adoptRecommendation: '按建议继续',
+    answerPlaceholder: '或者自己答一句…',
+    answerButton: '答复',
+    nextSteps: '已定的下一步',
+    project: '项目',
     replyError: '回复发送失败。',
     lastReply: '你上次的回复',
   },
@@ -783,6 +834,78 @@ function ReplyBox(props: { task: Task; managerSessionId?: string; onSent: () => 
 }
 
 /** Per-card footer links: jump to the working conversation, open the .md report. */
+/** 卡片上的问题清单：推荐答案一键采纳，或自己答一句。答完投给该项目的项目管理器。 */
+function AnswerBox(props: { task: Task; onAnswered: () => void }): ReactElement | null {
+  const questions = (props.task.questions ?? []).filter((item) => item.answer === undefined)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (questions.length === 0) return null
+
+  const answer = async (question: TaskQuestion, value: string): Promise<void> => {
+    if (value.trim() === '') return
+    setSending(true)
+    setError(null)
+    try {
+      await postJSON<Task>('/plugins/dsh-task-manager/answer', {
+        taskId: props.task.id,
+        questionId: question.id,
+        text: value,
+      })
+      setText('')
+      props.onAnswered()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : translate('replyError'))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const first = questions[0] as TaskQuestion
+  return (
+    <div className="dsh-taskm-reply">
+      <span className="dsh-taskm-detail-label">{translate('questions')}</span>
+      {questions.map((question) => (
+        <div key={question.id} className="dsh-taskm-conversation">
+          <div className="dsh-taskm-report-text">{question.text}</div>
+          {question.recommendation !== undefined ? (
+            <div className="dsh-taskm-hint">{translate('recommendation')} · {question.recommendation}</div>
+          ) : null}
+          {question.recommendation !== undefined ? (
+            <div className="dsh-taskm-footer">
+              <button
+                type="button"
+                className="dsh-taskm-primary"
+                disabled={sending}
+                onClick={() => { void answer(question, question.recommendation ?? '') }}
+              >
+                {translate('adoptRecommendation')}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ))}
+      {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
+      <textarea
+        className="dsh-taskm-textarea dsh-taskm-textarea-sm"
+        value={text}
+        placeholder={translate('answerPlaceholder')}
+        onChange={(event) => setText(event.target.value)}
+      />
+      <div className="dsh-taskm-footer">
+        <button
+          type="button"
+          className="dsh-taskm-primary"
+          disabled={sending || text.trim() === ''}
+          onClick={() => { void answer(first, text) }}
+        >
+          {translate('answerButton')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function TaskLinks(props: { task: Task }): ReactElement {
   const conversationId = props.task.captainSessionId ?? props.task.conversations?.[0]?.id
   return (
@@ -1070,7 +1193,22 @@ function TaskDetail(props: {
         )}
       </div>
 
+      {task.nextSteps !== undefined && task.nextSteps.length > 0 ? (
+        <div className="dsh-taskm-detail-section">
+          <span className="dsh-taskm-detail-label">{translate('nextSteps')}</span>
+          {task.nextSteps.map((step) => (
+            <div key={step.id} className="dsh-taskm-conversation">
+              <span className="dsh-taskm-report-text">{step.text}</span>
+              <span className="dsh-taskm-conv-meta">
+                {step.decidedBy === 'human' ? 'human' : 'project manager'} · {timeText(step.at)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <TaskLinks task={task} />
+      <AnswerBox task={task} onAnswered={props.onReplied} />
       {task.status === 'waiting-reply'
         ? <ReplyBox task={task} managerSessionId={props.sessionId} onSent={props.onReplied} />
         : null}
@@ -1115,9 +1253,12 @@ function TaskList(props: {
                 <span className="dsh-taskm-chip">{task.category}</span>
               ) : null}
             </div>
-            <span className="dsh-taskm-row-question">{shortPath(task.directory)} · {timeText(task.updatedAt)}</span>
+            <span className="dsh-taskm-row-question">
+              {shortPath(task.project ?? task.directory)} · {timeText(task.updatedAt)}
+            </span>
           </button>
           <TaskLinks task={task} />
+          <AnswerBox task={task} onAnswered={props.onReplied} />
           {task.status === 'waiting-reply'
             ? <ReplyBox task={task} managerSessionId={props.sessionId} onSent={props.onReplied} />
             : null}
@@ -1137,6 +1278,10 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [context, setContext] = useState<ContextInfo | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [onlyTodo, setOnlyTodo] = useState(false)
+  const [assignText, setAssignText] = useState('')
+  const [assignNotice, setAssignNotice] = useState<string | null>(null)
+  const [assigning, setAssigning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const sessionIdRef = useRef(props.sessionId)
@@ -1190,11 +1335,35 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         .filter((value): value is string => typeof value === 'string' && value !== ''),
     ),
   ).sort((a, b) => a.localeCompare(b))
-  const filteredTasks = categoryFilter === ''
+  const pendingTodo = (task: Task): boolean =>
+    (task.questions ?? []).some((item) => item.answer === undefined) || task.status === 'waiting-reply'
+  const byCategory = categoryFilter === ''
     ? tasks
     : categoryFilter === UNCATEGORIZED
       ? tasks.filter((task) => task.category === undefined || task.category === '')
       : tasks.filter((task) => task.category === categoryFilter)
+  const filteredTasks = onlyTodo ? byCategory.filter(pendingTodo) : byCategory
+  const todoCount = tasks.filter(pendingTodo).length
+
+  /** 派给大管理器：走 /assign，由它判断项目并把活交给该项目的项目管理器。 */
+  const assign = async (): Promise<void> => {
+    if (assignText.trim() === '') return
+    setAssigning(true)
+    setAssignNotice(null)
+    try {
+      const hint = context?.currentDir
+      await postJSON<{ managerSessionId: string }>('/plugins/dsh-task-manager/assign', {
+        text: assignText,
+        ...(hint === undefined ? {} : { cwd: hint }),
+      })
+      setAssignText('')
+      setAssignNotice(translate('assignSent'))
+    } catch (reason) {
+      setAssignNotice(reason instanceof Error ? reason.message : translate('assignError'))
+    } finally {
+      setAssigning(false)
+    }
+  }
 
   if (loading) {
     return <div className="dsh-taskm-main"><div className="dsh-taskm-main-body">{translate('loading')}</div></div>
@@ -1228,6 +1397,48 @@ function TaskView(props: { sessionId?: string }): ReactElement {
       </div>
 
       <div className="dsh-taskm-main-body">
+        {view === 'list' ? (
+          <div className="dsh-taskm-reply">
+            <span className="dsh-taskm-detail-label">{translate('assignTitle')}</span>
+            <textarea
+              className="dsh-taskm-textarea dsh-taskm-textarea-sm"
+              value={assignText}
+              placeholder={translate('assignPlaceholder')}
+              onChange={(event) => setAssignText(event.target.value)}
+            />
+            <div className="dsh-taskm-footer">
+              <button
+                type="button"
+                className="dsh-taskm-primary"
+                disabled={assigning || assignText.trim() === ''}
+                onClick={() => { void assign() }}
+              >
+                {translate('assignButton')}
+              </button>
+              {assignNotice !== null ? <span className="dsh-taskm-hint">{assignNotice}</span> : null}
+            </div>
+          </div>
+        ) : null}
+
+        {view === 'list' ? (
+          <div className="dsh-taskm-footer" style={{ marginBottom: '10px' }}>
+            <button
+              type="button"
+              className={onlyTodo ? 'dsh-taskm-main-create' : 'dsh-taskm-primary'}
+              onClick={() => setOnlyTodo(false)}
+            >
+              {translate('allTasks')}
+            </button>
+            <button
+              type="button"
+              className={onlyTodo ? 'dsh-taskm-primary' : 'dsh-taskm-main-create'}
+              onClick={() => setOnlyTodo(true)}
+            >
+              {translate('todoOnly')}{todoCount > 0 ? ` · ${todoCount}` : ''}
+            </button>
+          </div>
+        ) : null}
+
         {error !== null && view === 'list' ? (
           <div className="dsh-taskm-error">{error}</div>
         ) : null}

@@ -8,6 +8,22 @@ DSH Web GUI 任务管理器（纯 profile-bundle 覆盖层，**零官方源码�
 > 真正的侧栏面板（`sidebar.panellist`）+ 自己的主面板（`main`）——与官方插件页同款注册方式，
 > 不再抢对话视图的位置。
 
+## 两层管理器（v0.6，ADR-0014）
+
+任务台不再自己执行：**大管理器**（全局一个会话）判断项目归属，把任务交给**项目管理器**（每项目一个会话，git 根路径为主键），后者拆单、起执行会话、裁决下一步，把必须人拍板的问题落到卡片上。
+
+| 环节 | 通道 |
+|---|---|
+| 指派（GUI → 大管理器） | `POST /plugins/dsh-task-manager/assign` `{text, cwd?}` → 预设 `task-console-global` 的会话 |
+| 派单（大管理器 → 项目管理器） | 模型工具 `task_dispatch_project`（建卡 + 投简报），预设 `task-console-project` |
+| 问题 / 下一步 | `task_question` / `task_next_step`（项目管理器写卡） |
+| 用户拍板 | 面板「按建议继续 / 自己答」→ `POST /answer` `{taskId, questionId, text}` → 写下答复并投回该项目管理器 |
+| 管理器注册表 | `GET /console`，落盘 `console.json` |
+
+两个预设写在 profile composition 里（`~/.dsh/profiles/web/cordis.patch.yml`，id 与 `src/console.ts` 常量逐字绑定），工具面只有 `dsh-task-manager/tools` + 自动压缩。**提问不是任务状态**（ADR-0012）：卡片留着「待我处理」徽标，状态照旧。
+
+**没做**：触发器巡查。profile 里没有 `@deepseek-ai/dsh-tool-schedule`（`~/.dsh/profiles/node_modules` 里缺这个包），项目管理器暂时没有 `schedule_*` 工具可挂；装上之后给它加一行即可。
+
 ## 功能
 
 - **新建任务对话框**：标题（输入内容后自动生成，也有「生成标题」按钮）、任务内容、运行位置三选一：
