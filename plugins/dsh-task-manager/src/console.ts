@@ -93,6 +93,7 @@ export async function ensureManagerSession(
     sessionId,
     cwd: existing?.cwd ?? request.cwd,
     preset: request.preset,
+    ...(existing?.sources === undefined ? {} : { sources: existing.sources }),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   }

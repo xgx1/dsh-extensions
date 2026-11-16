@@ -77,6 +77,8 @@ export interface ConsoleManagerRecord {
   cwd: string
   /** 会话运行时使用的预设 id。 */
   preset: string
+  /** 本项目订阅的触发器键（inbox / github / ci）；配置挂项目，任务只引用。 */
+  sources?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -137,7 +139,11 @@ function normalizeManager(raw: unknown): ConsoleManagerRecord | undefined {
   const createdAt = typeof source['createdAt'] === 'number' ? source['createdAt'] : now
   const updatedAt = typeof source['updatedAt'] === 'number' ? source['updatedAt'] : createdAt
   const preset = typeof source['preset'] === 'string' && source['preset'] !== '' ? source['preset'] : ''
-  return { sessionId, cwd, preset, createdAt, updatedAt }
+  const rawSources = source['sources']
+  const sources = Array.isArray(rawSources)
+    ? rawSources.filter((item): item is string => typeof item === 'string' && item !== '')
+    : []
+  return { sessionId, cwd, preset, ...(sources.length === 0 ? {} : { sources }), createdAt, updatedAt }
 }
 
 /** Task list store: a JSON array of TaskRecord entries. */

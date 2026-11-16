@@ -387,12 +387,13 @@ export function buildDispatchBrief(input: {
  * @param text - 用户粘贴的任务正文。
  * @param cwdHint - 当前工作区目录，作为判断项目归属的提示。
  */
-export function buildConsoleAssignment(text: string, cwdHint?: string): string {
+export function buildConsoleAssignment(text: string, cwdHint?: string, sources?: string[]): string {
   return [
     '【任务台·指派】用户把这件事交给你：',
     '',
     text.trim(),
     ...(cwdHint === undefined ? [] : ['', `- 指派时的工作目录提示: ${cwdHint}`]),
+    ...(sources === undefined || sources.length === 0 ? [] : [`- 本单订阅的触发器: ${sources.join(' / ')}（派单时原样传给 task_dispatch_project 的 sources）`]),
     '',
     '你只做一件事：调用 task_dispatch_project 派给该项目的项目管理器。',
     '- project 填 git 仓库根路径；不确定就先调 task_console_state 看已有哪些项目。',

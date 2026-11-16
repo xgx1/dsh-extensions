@@ -14,15 +14,22 @@ DSH Web GUI 任务管理器（纯 profile-bundle 覆盖层，**零官方源码�
 
 | 环节 | 通道 |
 |---|---|
-| 指派（GUI → 大管理器） | `POST /plugins/dsh-task-manager/assign` `{text, cwd?}` → 预设 `task-console-global` 的会话 |
+| 指派（GUI → 大管理器） | `POST /plugins/dsh-task-manager/dispatch` `{text, cwd?, sources?}` → 预设 `task-console-global` 的会话 |
 | 派单（大管理器 → 项目管理器） | 模型工具 `task_dispatch_project`（建卡 + 投简报），预设 `task-console-project` |
-| 问题 / 下一步 | `task_question` / `task_next_step`（项目管理器写卡） |
-| 用户拍板 | 面板「按建议继续 / 自己答」→ `POST /answer` `{taskId, questionId, text}` → 写下答复并投回该项目管理器 |
-| 管理器注册表 | `GET /console`，落盘 `console.json` |
+| 起执行会话 | `task_start_execution` / `POST /start-execution` `{taskId}`：项目目录里开普通会话（预设 `all`）+ 投开工简报，卡片转 in-progress |
+| 问题 / 下一步 | `task_question` / `task_next_step`（项目管理器写卡），面板「问题 / 下一步」两列筛出来 |
+| 用户拍板 | 面板逐条答复 → `POST /answer` `{taskId, questionId, text}` → 写进卡片并投回该项目管理器 |
+| 触发器订阅 | `task_project_sources` `{project, sources[]}`：订阅挂在**项目**上（`console.json`），任务卡只记本单引用 |
+| 管理器注册表 / 巡查 | `GET /console`；`task_console_state` 返回每项目未关单数 + 触发器，就是只读巡查面 |
 
-两个预设写在 profile composition 里（`~/.dsh/profiles/web/cordis.patch.yml`，id 与 `src/console.ts` 常量逐字绑定），工具面只有 `dsh-task-manager/tools` + 自动压缩。**提问不是任务状态**（ADR-0012）：卡片留着「待我处理」徽标，状态照旧。
+两个预设写在 profile composition 里（id 与 `src/console.ts` 常量逐字绑定），工具面只有 `dsh-task-manager/tools`。**提问不是任务状态**（ADR-0012）：卡片留着「待我处理」徽标，状态照旧。
 
-**没做**：触发器巡查。profile 里没有 `@deepseek-ai/dsh-tool-schedule`（`~/.dsh/profiles/node_modules` 里缺这个包），项目管理器暂时没有 `schedule_*` 工具可挂；装上之后给它加一行即可。
+### 两个必踩的坑（都踩过，别再踩）
+
+1. **管理器会话的 cwd 必须在 `agent-configs.yaml` 的 `projects` 里**，否则 `@deepseek-ai/dsh-agent-config` 按项目发放工具的策略会让它一个工具都看不到（会话照样建起来，模型只能把工具调用写成文本）。管理器统一住 `<DSH_HOME>/task-manager/console`，两个 home 里各有一条 `task-console` 配置（`tools: ["task_*"]`）。
+2. **`dsh-task-manager/tools` 只 inject `tools`**：把 `taskManager` 也写进 `inject` 会让这一行在会话自己的 fiber 里永远等不到 host 服务、静默不注册；改成运行期惰性 `ctx.get('taskManager')`。
+
+**没做**：定时触发器巡查。项目管理器手上有 `task_console_state`（每项目未关单数 + 触发器）做只读巡查面，但没有定时器；profile 里没有 `@deepseek-ai/dsh-tool-schedule`，装上之后加一行即可。
 
 ## 功能
 
@@ -36,7 +43,7 @@ DSH Web GUI 任务管理器（纯 profile-bundle 覆盖层，**零官方源码�
 
 ## 编排（M1，Manager 任务编排 v1）
 
-宿主半侧新增编排层：`taskManager` 服务（host 平面，供 M2 模型工具经 `ctx.get('taskManager')` 消费）+ `captains.json` 队长注册表 + 三条 HTTP 路由。会话形态遵循 ADR-0003：队长 = Manager 经 `ctx.subagents.startContinuable` 创建的 continuable 子会话，类别章程+任务简报走 per-child `persona`，工具面走 per-child `toolFilter`（deny 全部管理工具），全部 7 个工具行挂管理模式预设。
+宿主半侧新增编排层：`taskManager` 服务（host 平面，供 M2 模型工具经 `ctx.get('taskManager')` 消费）+ `captains.json` 队长注册表 + 三条 HTTP 路由。会话形态遵循 ADR-0003：队长 = Manager 经 `ctx.subagents.startContinuable` 创建的 continuable 子会话，类别章程+任务简报走 per-child `persona`，工具面走 per-child `toolFilter`（deny 全部管理工具），全部 13 个工具行挂任务台预设。
 
 ### 状态映射表（R4，定死）
 

@@ -101,6 +101,8 @@ interface Task {
   consoleSessionId?: string
   /** 项目主键：git 仓库根路径。 */
   project?: string
+  /** 本单订阅的触发器键（配置挂项目，任务只引用）。 */
+  sources?: string[]
   /** 待你拍板的问题（ADR-0012：非阻塞，落在卡片上）。 */
   questions?: TaskQuestion[]
   /** 项目管理器已裁决的下一步。 */
@@ -1158,6 +1160,12 @@ function TaskDetail(props: {
           <div className="dsh-taskm-kv-row">
             <span className="dsh-taskm-kv-key">{translate('projectLabel')}</span>
             <span className="dsh-taskm-kv-value">{task.project !== undefined && task.project !== '' ? shortPath(task.project) : translate('notDispatched')}</span>
+          </div>
+          <div className="dsh-taskm-kv-row">
+            <span className="dsh-taskm-kv-key">{translate('filterAssigned')}</span>
+            <span className="dsh-taskm-kv-value">
+              {(task.sources ?? []).length === 0 ? '—' : (task.sources ?? []).join(' / ')}
+            </span>
           </div>
           <div className="dsh-taskm-kv-row">
             <span className="dsh-taskm-kv-key">{translate('managerSession')}</span>

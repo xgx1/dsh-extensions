@@ -45,7 +45,14 @@ import {
   createOutboundMessage,
 } from './records.ts'
 import { type ReplyRuntime } from './managed-reply.ts'
-import { CaptainStore, ConsoleStore, TaskStore, summarizeCaptains, type ConsoleState } from './stores.ts'
+import {
+  CaptainStore,
+  ConsoleStore,
+  TaskStore,
+  summarizeCaptains,
+  type ConsoleManagerRecord,
+  type ConsoleState,
+} from './stores.ts'
 import {
   GLOBAL_MANAGER_PRESET,
   PROJECT_MANAGER_PRESET,
@@ -208,7 +215,7 @@ export interface TaskManagerService {
    * @param options.cwd - 判断项目归属时的提示目录（通常是当前工作区）。
    * @returns 大管理器会话 id 与投递方式。
    */
-  assignToConsole(text: string, options?: { cwd?: string }): Promise<{ managerSessionId: string; delivered: 'live' | 'resumed' }>
+  assignToConsole(text: string, options?: { cwd?: string; sources?: string[] }): Promise<{ managerSessionId: string; delivered: 'live' | 'resumed' }>
   /**
    * 大管理器派单：确保该项目的项目管理器存在，建一张任务卡并把简报投给它。
    * @param input.project - 项目主键（git 根）；省略时从 `input.cwd` 探测。
@@ -243,6 +250,11 @@ export interface TaskManagerService {
    * 起执行会话：在项目目录里开一个普通会话（默认预设 standard），投开工简报并转 in-progress。
    */
   startExecution(taskId: string, options?: { agentPreset?: string }): Promise<{ taskId: string; sessionId: string; status: Status }>
+  /**
+   * 配置项目的触发器订阅（inbox / github / ci）：配置挂项目，任务只引用。
+   * @param sources - 订阅的触发器键；空数组表示不订阅。
+   */
+  setProjectSources(project: string, sources: string[]): Promise<ConsoleManagerRecord>
 }
 
 /** Create the taskManager service. Pure dependency injection, no cordis types. */
@@ -342,7 +354,10 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         preset: GLOBAL_MANAGER_PRESET,
       })
       const hint = options.cwd !== undefined && options.cwd !== '' ? options.cwd : undefined
-      const delivered = await deliverToManager(runtime, manager.sessionId, buildConsoleAssignment(body, hint))
+      const sources = Array.isArray(options.sources)
+        ? options.sources.filter((item): item is string => typeof item === 'string' && item !== '')
+        : []
+      const delivered = await deliverToManager(runtime, manager.sessionId, buildConsoleAssignment(body, hint, sources))
       return { managerSessionId: manager.sessionId, delivered }
     },
 
@@ -443,6 +458,22 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         // 管理器会话丢了不该吞掉答复：卡片上的 answer 已经写进去了。
         return { task, delivered: 'none' }
       }
+    },
+
+    async setProjectSources(project, sources) {
+      const key = typeof project === 'string' ? project.trim() : ''
+      if (key === '') throw new OrchestratorError('INVALID_INPUT', 'a project is required')
+      const store = requireConsoleStore()
+      const wanted = Array.isArray(sources)
+        ? [...new Set(sources.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim()))]
+        : []
+      return store.mutate((state) => {
+        const record = state.projects?.[key]
+        if (record === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `project ${key} has no project manager yet`)
+        record.sources = wanted
+        record.updatedAt = now()
+        return record
+      })
     },
 
     async startExecution(taskId, options = {}) {

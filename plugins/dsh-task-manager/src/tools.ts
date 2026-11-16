@@ -67,18 +67,19 @@ export function registerTaskTools(
                 project: { type: 'string', required: true },
                 sessionId: { type: 'string', required: true },
                 open: { type: 'integer', required: true },
+                sources: { type: 'array', items: { type: 'string' } },
               },
             },
           },
         },
       },
       render: (_args, value) => {
-        const rows = (value.projects ?? []) as Array<{ project: string; sessionId: string; open: number }>
+        const rows = (value.projects ?? []) as Array<{ project: string; sessionId: string; open: number; sources?: string[] }>
         const lines = [
           `大管理器：${value.global === undefined ? '未创建' : short(String(value.global))}`,
           ...(rows.length === 0
             ? ['项目管理器：还没有']
-            : rows.map((row) => `- ${row.project}（${short(row.sessionId)}）未关单 ${row.open} 张`)),
+            : rows.map((row) => `- ${row.project}（${short(row.sessionId)}）未关单 ${row.open} 张；触发器：${(row.sources ?? []).length === 0 ? '无' : (row.sources ?? []).join('/')}`)),
         ]
         return [{ type: 'text', text: lines.join('\n') }]
       },
@@ -90,6 +91,7 @@ export function registerTaskTools(
         project,
         sessionId: record.sessionId,
         open: tasks.filter((task) => task.project === project && task.status !== 'done').length,
+        sources: record.sources ?? [],
       }))
       return state.global === undefined ? { projects } : { global: state.global.sessionId, projects }
     },
@@ -138,6 +140,43 @@ export function registerTaskTools(
       return service.dispatchToProject(input)
     },
   }), 'task-manager: task_dispatch_project tool')
+
+  register(defineTool({
+    name: 'task_project_sources',
+    description:
+      '配置某个项目订阅的触发器（inbox / github / ci）。配置挂在项目上，任务卡只引用；' +
+      '巡查时按这里列出的触发器检查有没有需要跟进的事件。',
+    parameters: {
+      project: { type: 'string', required: true, description: '项目主键：git 仓库根路径。' },
+      sources: {
+        type: 'array',
+        items: { type: 'string' },
+        required: true,
+        description: '订阅的触发器键；传空数组表示取消订阅。',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          project: { type: 'string', required: true },
+          sources: { type: 'array', items: { type: 'string' }, required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `${value.project} 的触发器：${(value.sources ?? []).length === 0 ? '（无）' : (value.sources ?? []).join(' / ')}`,
+      }],
+    },
+    execute: async (args) => {
+      const sources = Array.isArray(args.sources)
+        ? args.sources.filter((item: unknown): item is string => typeof item === 'string')
+        : []
+      const record = await service.setProjectSources(String(args.project), sources)
+      return { project: String(args.project), sources: record.sources ?? [] }
+    },
+  }), 'task-manager: task_project_sources tool')
 
   register(defineTool({
     name: 'task_question',

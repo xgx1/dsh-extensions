@@ -73,6 +73,25 @@ describe('card questions and answers', () => {
     }
   })
 
+  it('stores the project trigger subscription on the project manager record', async () => {
+    const { dir, service } = await rig()
+    try {
+      const consoleStore = new ConsoleStore(dir)
+      await consoleStore.mutate((state) => {
+        state.projects = {
+          '/tmp': { sessionId: 'session-project-manager', cwd: '/tmp', preset: 'task-console-project', createdAt: 1, updatedAt: 1 },
+        }
+      })
+      const record = await service.setProjectSources('/tmp', ['inbox', 'ci', 'inbox', ' '])
+      expect(record.sources).toEqual(['inbox', 'ci'])
+      const state = await service.consoleState()
+      expect(state.projects?.['/tmp']?.sources).toEqual(['inbox', 'ci'])
+      await expect(service.setProjectSources('/nope', ['inbox'])).rejects.toThrow(/no project manager/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects an empty answer and an already answered question', async () => {
     const { dir, service } = await rig()
     try {

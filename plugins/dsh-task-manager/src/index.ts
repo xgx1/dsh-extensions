@@ -336,7 +336,10 @@ export function apply(ctx: Context, config?: Config): void {
           const body = await readJsonBody(req)
           const text = typeof body['text'] === 'string' ? body['text'] : ''
           const cwd = typeof body['cwd'] === 'string' && body['cwd'] !== '' ? body['cwd'] : undefined
-          const result = await taskManager.assignToConsole(text, cwd === undefined ? {} : { cwd })
+          const sources = Array.isArray(body['sources'])
+            ? body['sources'].filter((item): item is string => typeof item === 'string')
+            : []
+          const result = await taskManager.assignToConsole(text, { ...(cwd === undefined ? {} : { cwd }), sources })
           json(res, 200, result)
         } catch (error) {
           json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
