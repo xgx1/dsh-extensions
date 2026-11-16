@@ -83,6 +83,13 @@ export type { TaskRecord, CaptainRecord } from './records.ts'
 
 export const name = 'dsh-task-manager'
 
+/**
+ * Declared injection: the two-layer managers create their own Sessions
+ * (ADR-0014), and cordis refuses service access without it
+ * (`cannot get property "sessionController" without inject`).
+ */
+export const inject = ['sessionController']
+
 /** Run a `git` command and return its trimmed stdout. */
 async function git(cwd: string, args: string[]): Promise<string> {
   try {
@@ -308,29 +315,6 @@ export function apply(ctx: Context, config?: Config): void {
       },
     }), 'task-manager: state route')
 
-    // TEMP DEBUG: 会话控制器能力探针
-    ctx.effect(() => webServer.register({
-      kind: 'exact',
-      path: '/plugins/dsh-task-manager/debug-sc',
-      handler: async (_req, res) => {
-        const sc = ctx.get('sessionController' as never) as unknown as Record<string, unknown> | undefined
-        const result: Record<string, unknown> = {
-          hasCommands: sc?.['commands'] !== undefined,
-          hasAgents: sc?.['agents'] !== undefined,
-          hasListState: sc?.['listState'] !== undefined,
-          sameAsProperty: (ctx as unknown as { sessionController?: unknown }).sessionController === sc,
-          keys: sc === undefined ? [] : Object.keys(sc),
-        }
-        try {
-          const resolved = await (sc!['resolveAgent'] as (id: string) => Promise<unknown>)('session-does-not-exist')
-          result['resolveAgent'] = JSON.stringify(resolved).slice(0, 200)
-        } catch (error) {
-          result['resolveAgentError'] = error instanceof Error ? error.message : String(error)
-        }
-        json(res, 200, result)
-      },
-    }), 'task-manager: debug sc')
-
     /** 任务台的两层管理器（ADR-0014）：注册表快照与「指派任务」。 */
     ctx.effect(() => webServer.register({
       kind: 'exact',
@@ -346,7 +330,7 @@ export function apply(ctx: Context, config?: Config): void {
 
     ctx.effect(() => webServer.register({
       kind: 'exact',
-      path: '/plugins/dsh-task-manager/assign',
+      path: '/plugins/dsh-task-manager/dispatch',
       handler: async (req, res) => {
         try {
           const body = await readJsonBody(req)
@@ -523,23 +507,6 @@ export function apply(ctx: Context, config?: Config): void {
 
     // 纳管视图（ADR-0011）：卡片是 session_manager 状态的派生渲染，不落第二份任务表。
     /** 任务卡上「按建议继续 / 自己答」：写回答复并投给该项目的项目管理器。 */
-    ctx.effect(() => webServer.register({
-      kind: 'exact',
-      path: '/plugins/dsh-task-manager/answer',
-      handler: async (req, res) => {
-        try {
-          const body = await readJsonBody(req)
-          const taskId = typeof body['taskId'] === 'string' ? body['taskId'] : ''
-          const questionId = typeof body['questionId'] === 'string' ? body['questionId'] : ''
-          const text = typeof body['text'] === 'string' ? body['text'] : ''
-          const out = await taskManager.answerQuestion(taskId, questionId, text)
-          json(res, 200, { task: out.task, delivered: out.delivered })
-        } catch (error) {
-          json(res, statusForError(error), { error: error instanceof Error ? error.message : String(error) })
-        }
-      },
-    }), 'task-manager: answer route')
-
     ctx.effect(() => webServer.register({
       kind: 'exact',
       path: '/plugins/dsh-task-manager/managed',

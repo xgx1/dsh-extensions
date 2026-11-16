@@ -96,15 +96,21 @@ describe('tools-only 入口（dsh-task-manager/tools，ADR-0004）', () => {
     try {
       const { ctx, asked } = callerScope({ taskManager: service })
       apply(ctx)
-      expect(asked).toEqual(['taskManager']) // 唯一的跨面消费；绝不碰 web 服务
+      // 唯一的跨面消费；绝不碰 web 服务。服务名现在按调用惰性解析，所以不再出现在加载期解析列表里。
+      expect(asked).toEqual([])
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
   })
 
-  it('a4 taskManager 缺席时加载期响亮失败（错误点名 ADR-0004）', () => {
-    const { ctx } = callerScope({ taskManager: undefined })
-    expect(() => apply(ctx)).toThrow(/taskManager service.*ADR-0004/)
+  it('a4 taskManager 缺席时首次调用响亮失败（错误点名 ADR-0004）', async () => {
+    const { ctx, defs } = callerScope({ taskManager: undefined })
+    apply(ctx)
+    const tool = defs.get('task_list')
+    expect(tool).toBeDefined()
+    await expect((tool as unknown as { execute: (args: unknown, exec: unknown) => Promise<unknown> }).execute({}, {})).rejects.toThrow(
+      /taskManager service.*ADR-0004/,
+    )
   })
 
   it('a4 注册经 ctx.effect（disposer 语义由 cordis 接管，标签可诊断）', async () => {

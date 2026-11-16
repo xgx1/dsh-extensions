@@ -230,6 +230,17 @@ const dicts: Record<string, Record<string, string>> = {
     assignError: 'Failed to hand the task over.',
     todoOnly: 'Needs me',
     allTasks: 'All',
+    filterAll: 'All',
+    filterAssigned: 'Assigned',
+    filterQuestions: 'Questions',
+    filterNext: 'Next steps',
+    filterRunning: 'Running',
+    questionsSection: 'Questions',
+    nextStepsSection: 'Next steps',
+    projectLabel: 'Project',
+    managerSession: 'Project manager',
+    startExecution: 'Start execution',
+    executionStarted: 'Execution session started.',
     questions: 'Waiting for you',
     recommendation: 'Suggested',
     adoptRecommendation: 'Go with the suggestion',
@@ -306,6 +317,17 @@ const dicts: Record<string, Record<string, string>> = {
     assignError: '派发失败。',
     todoOnly: '待我处理',
     allTasks: '全部',
+    filterAll: '全部',
+    filterAssigned: '已指派',
+    filterQuestions: '问题',
+    filterNext: '下一步',
+    filterRunning: '运行中',
+    questionsSection: '问题',
+    nextStepsSection: '下一步',
+    projectLabel: '项目',
+    managerSession: '项目管理器',
+    startExecution: '起执行会话',
+    executionStarted: '执行会话已起。',
     questions: '等你拍板',
     recommendation: '建议',
     adoptRecommendation: '按建议继续',
@@ -1079,6 +1101,24 @@ function TaskDetail(props: {
     }
   }
 
+  const [notice, setNotice] = useState<string | null>(null)
+  /** 从面板起执行会话（与 task_start_execution 同一条路）。 */
+  const startExecution = async (): Promise<void> => {
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await postJSON<{ sessionId: string }>('/plugins/dsh-task-manager/start-execution', { taskId: task.id })
+      setNotice(translate('executionStarted'))
+      props.onReplied()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : translate('createError'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const questions = task.questions ?? []
   const conversations = task.conversations ?? []
 
   return (
@@ -1111,6 +1151,49 @@ function TaskDetail(props: {
         <span>{translate('createdAt')}: {new Date(task.createdAt).toLocaleString()}</span>
         <span>{translate('updatedAt')}: {new Date(task.updatedAt).toLocaleString()}</span>
       </div>
+
+      <div className="dsh-taskm-detail-section">
+        <span className="dsh-taskm-detail-label">{translate('projectLabel')} · {translate('managerSession')}</span>
+        <div className="dsh-taskm-kv">
+          <div className="dsh-taskm-kv-row">
+            <span className="dsh-taskm-kv-key">{translate('projectLabel')}</span>
+            <span className="dsh-taskm-kv-value">{task.project !== undefined && task.project !== '' ? shortPath(task.project) : translate('notDispatched')}</span>
+          </div>
+          <div className="dsh-taskm-kv-row">
+            <span className="dsh-taskm-kv-key">{translate('managerSession')}</span>
+            <span className="dsh-taskm-kv-value">
+              {task.consoleSessionId !== undefined && task.consoleSessionId !== ''
+                ? <span className="dsh-taskm-conv-id">{shortSessionId(task.consoleSessionId)}</span>
+                : translate('notDispatched')}
+            </span>
+          </div>
+        </div>
+        <div className="dsh-taskm-footer">
+          <button type="button" className="dsh-taskm-primary" disabled={saving} onClick={() => { void startExecution() }}>
+            {translate('startExecution')}
+          </button>
+          {notice !== null ? <span className="dsh-taskm-hint">{notice}</span> : null}
+        </div>
+      </div>
+
+      {questions.length > 0 ? (
+        <div className="dsh-taskm-detail-section">
+          <span className="dsh-taskm-detail-label">{translate('questionsSection')}</span>
+          {questions.map((question) => (
+            <div key={question.id} className="dsh-taskm-kv-row">
+              <span className="dsh-taskm-kv-key">{question.answer === undefined ? '·' : '✓'}</span>
+              <span className="dsh-taskm-kv-value">
+                {question.text}
+                {question.answer === undefined
+                  ? (question.recommendation === undefined ? '' : ` （${question.recommendation}）`)
+                  : ` → ${question.answer.text}`}
+              </span>
+            </div>
+          ))}
+          <AnswerBox task={task} onAnswered={props.onReplied} />
+        </div>
+      ) : null}
+
 
       <div className="dsh-taskm-detail-section">
         <span className="dsh-taskm-detail-label">{translate('orchestration')}</span>
@@ -1278,7 +1361,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [context, setContext] = useState<ContextInfo | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState('')
-  const [onlyTodo, setOnlyTodo] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'assigned' | 'questions' | 'next' | 'running'>('all')
   const [assignText, setAssignText] = useState('')
   const [assignNotice, setAssignNotice] = useState<string | null>(null)
   const [assigning, setAssigning] = useState(false)
@@ -1342,8 +1425,25 @@ function TaskView(props: { sessionId?: string }): ReactElement {
     : categoryFilter === UNCATEGORIZED
       ? tasks.filter((task) => task.category === undefined || task.category === '')
       : tasks.filter((task) => task.category === categoryFilter)
-  const filteredTasks = onlyTodo ? byCategory.filter(pendingTodo) : byCategory
+  const hasQuestions = (task: Task): boolean => (task.questions ?? []).some((item) => item.answer === undefined)
+  const hasNextSteps = (task: Task): boolean => (task.nextSteps ?? []).length > 0
+  const isRunning = (task: Task): boolean => task.status === 'in-progress'
+  const matchesFilter = (task: Task): boolean => {
+    if (filter === 'assigned') return task.project !== undefined && task.project !== ''
+    if (filter === 'questions') return hasQuestions(task)
+    if (filter === 'next') return hasNextSteps(task)
+    if (filter === 'running') return isRunning(task)
+    return true
+  }
+  const filteredTasks = byCategory.filter(matchesFilter)
   const todoCount = tasks.filter(pendingTodo).length
+  const counts = {
+    all: tasks.length,
+    assigned: tasks.filter((task) => task.project !== undefined && task.project !== '').length,
+    questions: tasks.filter(hasQuestions).length,
+    next: tasks.filter(hasNextSteps).length,
+    running: tasks.filter(isRunning).length,
+  }
 
   /** 派给大管理器：走 /assign，由它判断项目并把活交给该项目的项目管理器。 */
   const assign = async (): Promise<void> => {
@@ -1352,7 +1452,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
     setAssignNotice(null)
     try {
       const hint = context?.currentDir
-      await postJSON<{ managerSessionId: string }>('/plugins/dsh-task-manager/assign', {
+      await postJSON<{ managerSessionId: string }>('/plugins/dsh-task-manager/dispatch', {
         text: assignText,
         ...(hint === undefined ? {} : { cwd: hint }),
       })
@@ -1422,20 +1522,17 @@ function TaskView(props: { sessionId?: string }): ReactElement {
 
         {view === 'list' ? (
           <div className="dsh-taskm-footer" style={{ marginBottom: '10px' }}>
-            <button
-              type="button"
-              className={onlyTodo ? 'dsh-taskm-main-create' : 'dsh-taskm-primary'}
-              onClick={() => setOnlyTodo(false)}
-            >
-              {translate('allTasks')}
-            </button>
-            <button
-              type="button"
-              className={onlyTodo ? 'dsh-taskm-primary' : 'dsh-taskm-main-create'}
-              onClick={() => setOnlyTodo(true)}
-            >
-              {translate('todoOnly')}{todoCount > 0 ? ` · ${todoCount}` : ''}
-            </button>
+            {([['all', 'filterAll'], ['assigned', 'filterAssigned'], ['questions', 'filterQuestions'], ['next', 'filterNext'], ['running', 'filterRunning']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={filter === key ? 'dsh-taskm-primary' : 'dsh-taskm-main-create'}
+                onClick={() => setFilter(key)}
+              >
+                {translate(label)}{counts[key] > 0 ? ` · ${counts[key]}` : ''}
+              </button>
+            ))}
+            {todoCount > 0 ? <span className="dsh-taskm-hint">{translate('todoOnly')} · {todoCount}</span> : null}
           </div>
         ) : null}
 

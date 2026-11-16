@@ -75,11 +75,11 @@ export async function ensureManagerSession(
   project: string | undefined,
   request: { cwd: string; preset: string },
 ): Promise<ConsoleManagerRecord> {
-  const create = runtime.sessionController?.create
+  const create = createSessionOf(runtime)
   if (create === undefined) {
     throw new OrchestratorError(
       'DELIVERY_UNAVAILABLE',
-      'sessionController.create is unavailable; cannot start a manager conversation',
+      'sessionController cannot create sessions; cannot start a manager conversation',
     )
   }
   const state = await store.load()
@@ -98,6 +98,36 @@ export async function ensureManagerSession(
   }
   await persistManager(store, project, record)
   return record
+}
+
+/**
+ * 取「建会话」能力。
+ *
+ * `sessionController.create` 是 `@Remote` 装饰过的方法，从别的插件直接调用会在内部
+ * 读到未初始化的私有字段（实测 `Cannot read properties of undefined (reading 'commands')`）；
+ * 未装饰的内部控制器 `agents.createSession` 是同一实现的原语，直接用它。
+ * shortcut: 依赖 `sessionController.agents` 这个内部字段，DSH 改版把它私有化后要换成公开 API。
+ */
+export function createSessionOf(
+  runtime: ReplyRuntime,
+): ((request: SessionCreateRequest) => Promise<{ sessionId?: string }>) | undefined {
+  const sc = runtime.sessionController as
+    | (NonNullable<ReplyRuntime['sessionController']> & {
+      agents?: { createSession?: (request: SessionCreateRequest & { reusable?: (id: string) => boolean }) => Promise<{ agent?: { id?: string } }> }
+    })
+    | undefined
+  const agents = sc?.agents
+  const nested = agents?.createSession
+  if (agents !== undefined && typeof nested === 'function') {
+    return async (request) => {
+      const created = await nested.call(agents, { ...request, reusable: () => true })
+      const id = created.agent?.id
+      return id === undefined ? {} : { sessionId: id }
+    }
+  }
+  const direct = sc?.create
+  if (typeof direct === 'function') return direct
+  return undefined
 }
 
 /**

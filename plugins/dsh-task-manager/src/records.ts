@@ -394,10 +394,10 @@ export function buildConsoleAssignment(text: string, cwdHint?: string): string {
     text.trim(),
     ...(cwdHint === undefined ? [] : ['', `- 指派时的工作目录提示: ${cwdHint}`]),
     '',
-    '你只做路由，不做别的：',
-    '1. 判断它属于哪个项目（git 仓库根路径，绝对路径）。判断不了就先问用户，不要猜。',
-    '2. 调用 task_dispatch_project(project=<git 根路径>, title=<不超过 40 字的短标题>, text=<原样的任务正文>) 派给该项目的项目管理器。',
-    '不要自己改代码、不要建会话、不要执行任务本身。',
+    '你只做一件事：调用 task_dispatch_project 派给该项目的项目管理器。',
+    '- project 填 git 仓库根路径；不确定就先调 task_console_state 看已有哪些项目。',
+    '- 也不需要先跑 git 核对：传 cwd=上面的工作目录提示，host 会自己解析出仓库根。',
+    '- 你没有 shell、没有文件读写，只能用 task_* 工具；不要输出工具格式的文本，直接发起工具调用。',
   ].join('\n')
 }
 

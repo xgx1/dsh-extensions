@@ -49,7 +49,7 @@ import { CaptainStore, ConsoleStore, TaskStore, summarizeCaptains, type ConsoleS
 import {
   GLOBAL_MANAGER_PRESET,
   PROJECT_MANAGER_PRESET,
-  agentSessionId,
+  createSessionOf,
   deliverToManager,
   ensureManagerSession,
   gitRootOf,
@@ -359,8 +359,10 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const project = (await gitRootOf(absolute)) ?? absolute
       const store = requireConsoleStore()
       const runtime = deps.resolveRuntime()
+      // 管理器会话统一住在控制台目录：agent-configs 按 cwd 发放工具，项目根目录的
+      // 配置表里没有 task_* 白名单。项目路径由任务卡携带，执行会话才落在项目里。
       const manager = await ensureManagerSession(runtime, store, project, {
-        cwd: project,
+        cwd: deps.consoleCwd ?? join(dirname(deps.store.path), 'console'),
         preset: PROJECT_MANAGER_PRESET,
       })
       const stamp = now()
@@ -444,9 +446,9 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     },
 
     async startExecution(taskId, options = {}) {
-      const create = deps.resolveRuntime().sessionController?.create
+      const create = createSessionOf(deps.resolveRuntime())
       if (create === undefined) {
-        throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController.create is unavailable')
+        throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController cannot create sessions')
       }
       const existing = await deps.store.load()
       const target = existing.find((item) => item.id === taskId)
