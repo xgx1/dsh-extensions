@@ -137,7 +137,8 @@ describe('card questions and answers', () => {
       expect(result.status).toBe('in-progress')
       // 会话坐在执行位（白名单内），项目路径靠简报给出
       expect(created[0]?.cwd).toBe(`${dir}/exec`)
-      expect(created[0]?.agentPreset).toBe('all')
+      // 执行会话要能收尾回报，所以默认挂 task-exec 预设（内含 dsh-task-manager/tools）。
+      expect(created[0]?.agentPreset).toBe('task-exec')
       const task = (await service.list()).find((item) => item.id === 'abcdef123456')
       expect(task?.worktreeBranch).toBe('task/abcdef12')
       expect(task?.directory).toBe(`${repo}-abcdef12`)

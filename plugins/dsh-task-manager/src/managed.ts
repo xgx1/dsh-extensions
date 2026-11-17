@@ -114,9 +114,11 @@ const STATUS_ORDER: Record<ManagedStatus, number> = { paused: 0, problem: 1, 'in
  * @returns 卡片列表；状态缺失或形状不认识时返回 `unavailable`。
  */
 export function readManagedCards(state: unknown): ManagedView {
+  // unavailable 只表示"这个实例根本没有 managed 视图"（session_manager 域缺席）。
+  // 域在、只是还没有卡 → 正常空列表，别再吓人。
   if (!isRecord(state)) return { cards: [], unavailable: true }
   const links = state['links']
-  if (!isRecord(links)) return { cards: [], unavailable: true }
+  if (!isRecord(links)) return { cards: [] }
   const creations = isRecord(state['creations']) ? state['creations'] : {}
   const questions = isRecord(state['questions']) ? state['questions'] : {}
 

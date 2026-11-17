@@ -6,7 +6,7 @@
 #   1. <dsh-extensions>/skills/<分组>/**/SKILL.md   ← 按上游仓库分组；技能目录 = 含 SKILL.md 的目录
 #      （上游把技能放在不同层级：skills/<名>/、skills/<分类>/<名>/、.agents/skills/<名>/、
 #        plugins/<插件>/skills/<名>/……所以按 SKILL.md 递归发现，而不是写死两级）
-#   2. <update-app>/skills/<技能>/                ← update-all 随它的 CLI 走
+#   2. <ps-tool>/.dsh/skills/<技能>/              ← 项目程序仓自带的技能（update-all 等）
 #   3. ~/projects/<项目>/.dsh/skills/<技能>/      ← 项目专用技能（各项目自己的仓）
 #
 # 目标：
@@ -39,7 +39,7 @@ set -euo pipefail
 DSH_EXT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_ROOT="${HOME}/.dsh/skills"
 BACKUP_ROOT="${HOME}/.dsh/skill-backups"
-UPDATE_APP="${HOME}/projects/update-app"
+PSTOOL="${PSTOOL_SKILLS_ROOT:-/mnt/Video2/ps-tool/.dsh/skills}"
 # PROJECTS_ROOT 必须是**物理路径**：Windows 上 ~/projects 是指向 ~/Project 的 junction，
 # MSYS 的 find 把 junction 当成符号链接、默认不跟随，于是源 3「项目专用技能」
 # 会一个都扫不到——脚本看着跑成功，项目技能却仍是运行时里的旧副本（静默漂移）。
@@ -111,8 +111,8 @@ if [ -d "$DSH_EXT/skills" ]; then
     for d in "${skipped[@]}"; do echo "  ${d#"$DSH_EXT"/}" >&2; done
   fi
 fi
-# 源 2：update-app/skills/<技能>
-[ -d "$UPDATE_APP/skills" ] && for sk in "$UPDATE_APP"/skills/*/; do add_skill "$sk"; done
+# 源 2：ps-tool 仓自带技能（update-all 随它的 CLI，2026-11-17 从独立仓 update-app 并进 ps-tool）
+[ -d "$PSTOOL" ] && for sk in "$PSTOOL"/*/; do add_skill "$sk"; done
 # 源 3：任意深度项目下的 .dsh/skills/<技能>
 #   同样递归而非单层：`~/projects/*/.dsh/skills/` 这种一层 glob 会漏掉
 #   `ps-tool/anim/.dsh/skills/`（4 个 anime 技能长期靠手工软链）与

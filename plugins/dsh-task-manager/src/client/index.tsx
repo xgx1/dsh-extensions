@@ -103,6 +103,8 @@ interface Task {
   project?: string
   /** 本单订阅的触发器键（配置挂项目，任务只引用）。 */
   sources?: string[]
+  /** 任务分支合回项目分支后的提交 id（`setStatus(done)` 副作用）。 */
+  mergeCommit?: string
   /** 待你拍板的问题（ADR-0012：非阻塞，落在卡片上）。 */
   questions?: TaskQuestion[]
   /** 项目管理器已裁决的下一步。 */
@@ -189,13 +191,14 @@ const dicts: Record<string, Record<string, string>> = {
     empty: 'No tasks yet. Click “New task” to create one.',
     loading: 'Loading…',
     loadError: 'Failed to load tasks.',
+    authExpired: 'Session expired: reopen DSH Web with the current token link.',
     createError: 'Failed to create the task.',
     noConversations: 'No conversation has run in this task’s directory yet.',
     statusNotStarted: 'Not started',
     statusInProgress: 'In progress',
     statusWaitingReply: 'Waiting for reply',
     statusProblem: 'Problem',
-    statusWaitingCheck: 'Waiting for check',
+    statusWaitingCheck: 'Ready to test',
     statusDone: 'Done',
     createdAt: 'Created',
     updatedAt: 'Updated',
@@ -217,7 +220,7 @@ const dicts: Record<string, Record<string, string>> = {
     statusPaused: 'Paused',
     managedTurnEnded: 'Turn ended',
     managedSection: 'Managed conversations',
-    managedUnavailable: 'The management plugin is not running here; showing the local task list.',
+    managedUnavailable: 'This instance has no session_manager domain, so the managed-session view is off. The task list below still works.',
     managedQuestion: 'Waiting for your answer',
     managedReplyHint: 'Your answer goes to the manager conversation, not to this panel.',
     managedNoQuestions: 'No pending question.',
@@ -237,6 +240,7 @@ const dicts: Record<string, Record<string, string>> = {
     filterQuestions: 'Questions',
     filterNext: 'Next steps',
     filterRunning: 'Running',
+    mergedCommit: 'Merged as',
     questionsSection: 'Questions',
     nextStepsSection: 'Next steps',
     projectLabel: 'Project',
@@ -276,13 +280,14 @@ const dicts: Record<string, Record<string, string>> = {
     empty: '还没有任务，点击「新建任务」创建一个。',
     loading: '加载中…',
     loadError: '任务加载失败。',
+    authExpired: '登录已失效：这个标签页用的是旧 token。请用 dev 实例当前 token 的链接重新打开。',
     createError: '任务创建失败。',
     noConversations: '还没有对话在这个任务的目录里运行。',
     statusNotStarted: '未开始',
     statusInProgress: '进行中',
     statusWaitingReply: '等待回复',
     statusProblem: '发生问题',
-    statusWaitingCheck: '等待检查',
+    statusWaitingCheck: '待测试',
     statusDone: '已完成',
     createdAt: '创建时间',
     updatedAt: '更新时间',
@@ -299,12 +304,12 @@ const dicts: Record<string, Record<string, string>> = {
     noReport: '尚无队长回报。',
     evidence: '证据路径',
     needsFinalReview: '需终审',
-    needsFinalReviewHint: '勾选后，队长完成回报将被钳制为「等待检查」，待你终审后方可关单。',
+    needsFinalReviewHint: '勾选后，完成回报会停在「待测试」，要你验收（关单时会自动把任务分支合回项目）。',
     openConversation: '打开对话',
     statusPaused: '已暂停',
     managedTurnEnded: '本轮已结束',
     managedSection: '纳管对话',
-    managedUnavailable: '管理插件未在此实例运行，当前显示本地任务列表。',
+    managedUnavailable: '本实例没启用 session_manager（dev 组成里已移除），管理会话视图不可用；下面的任务列表照常工作。',
     managedQuestion: '等待你的答复',
     managedReplyHint: '答复会送进管理对话，不留在本面板。',
     managedNoQuestions: '当前没有待答问题。',
@@ -326,6 +331,7 @@ const dicts: Record<string, Record<string, string>> = {
     filterQuestions: '问题',
     filterNext: '下一步',
     filterRunning: '运行中',
+    mergedCommit: '已合入提交',
     questionsSection: '问题',
     nextStepsSection: '下一步',
     projectLabel: '项目',
@@ -367,7 +373,8 @@ async function getJSON<T>(path: string): Promise<T> {
   const body: unknown = await response.json().catch(() => ({}))
   if (!response.ok) {
     const message = (body as { error?: string }).error ?? `HTTP ${response.status}`
-    throw new Error(message)
+    // 带上状态码：401 要单独说明"登录已失效"，不能笼统报成插件不可用。
+    throw Object.assign(new Error(message), { status: response.status })
   }
   return body as T
 }
@@ -1112,8 +1119,9 @@ function TaskDetail(props: {
     setError(null)
     setNotice(null)
     try {
-      await postJSON<{ sessionId: string }>('/plugins/dsh-task-manager/start-execution', { taskId: task.id })
-      setNotice(translate('executionStarted'))
+      const started = await postJSON<{ sessionId?: string }>('/plugins/dsh-task-manager/start-execution', { taskId: task.id })
+      const short = typeof started.sessionId === 'string' ? started.sessionId.replace(/^session-/, '').slice(0, 8) : ''
+      setNotice(short === '' ? translate('executionStarted') : `${translate('executionStarted')}（${short}）`)
       props.onReplied()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : translate('createError'))
@@ -1169,6 +1177,12 @@ function TaskDetail(props: {
               {(task.sources ?? []).length === 0 ? '—' : (task.sources ?? []).join(' / ')}
             </span>
           </div>
+          {task.mergeCommit === undefined ? null : (
+            <div className="dsh-taskm-kv-row">
+              <span className="dsh-taskm-kv-key">{translate('mergedCommit')}</span>
+              <span className="dsh-taskm-kv-value">{task.mergeCommit}</span>
+            </div>
+          )}
           <div className="dsh-taskm-kv-row">
             <span className="dsh-taskm-kv-key">{translate('managerSession')}</span>
             <span className="dsh-taskm-kv-value">
@@ -1400,7 +1414,12 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         return state.tasks.find((task) => task.id === previous.id) ?? null
       })
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : translate('loadError'))
+      const status = (reason as { status?: number }).status
+      setError(
+        status === 401
+          ? translate('authExpired')
+          : reason instanceof Error ? reason.message : translate('loadError'),
+      )
     } finally {
       setLoading(false)
     }

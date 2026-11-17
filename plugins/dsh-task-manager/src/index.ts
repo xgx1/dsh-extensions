@@ -492,15 +492,8 @@ export function apply(ctx: Context, config?: Config): void {
           return
         }
         try {
-          let updated: TaskRecord | undefined
-          await store.mutate((tasks) => {
-            const task = tasks.find((item) => item.id === id)
-            if (task === undefined) throw new Error('task not found')
-            task.status = status as Status
-            task.updatedAt = Date.now()
-            updated = task
-          })
-          json(res, 200, updated)
+          // 走服务层而不是直接改 store：关门（done）时它还要把任务分支合回项目。
+          json(res, 200, await taskManager.setStatus(id, status as Status))
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           json(res, message === 'task not found' ? 404 : 500, { error: message })

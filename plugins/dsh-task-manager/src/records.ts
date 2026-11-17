@@ -35,6 +35,8 @@ export interface TaskRecord {
   runMode: RunMode
   directory: string
   worktreeBranch?: string
+  /** 用户验收通过后把任务分支合回项目分支的提交 id（`setStatus(done)` 副作用）。 */
+  mergeCommit?: string
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入。 */
   category?: string
@@ -447,6 +449,11 @@ export function buildExecutionBrief(input: {
     ...(input.workdir === undefined ? [] : [`- 工作目录（干活就在这里，用 bash 的 workdir 参数或 cd 进去）: ${input.workdir}`]),
     `- 需求:`,
     input.task.content.trim(),
+    '',
+    '收尾（必须做）：用 `task_report` 把结果写回卡片 ——',
+    `  task_report({ taskId: "${input.task.id}", status: "waiting-check", text: "做了什么/怎么验收", evidence: ["分支 …", "提交 …", "验收命令输出 …"] })`,
+    '  状态说明：干完且验收命令自己跑过 → `waiting-check`（待人测试）；做不下去 → `problem` 并写清卡在哪。',
+    '  没有这一步，卡片会永远停在 in-progress，用户看不到"待测试"。',
     '',
     '允许清单（v0.1 硬性）：只产 patch；不 push、不开 PR、不碰受保护分支、不跨仓库。',
     '遇到必须由人拍板的选择，把问题写成一行「问题：…（建议：…）」，不要自行猜测继续。',

@@ -87,7 +87,8 @@ describe('readManagedCards', () => {
 
   it('reports unavailable instead of throwing when the domain is absent', () => {
     expect(readManagedCards(undefined)).toEqual({ cards: [], unavailable: true })
-    expect(readManagedCards({ nonsense: true })).toEqual({ cards: [], unavailable: true })
+    // 域在、只是没有 links：正常空列表，不该报"不可用"。
+    expect(readManagedCards({ nonsense: true })).toEqual({ cards: [] })
   })
 })
 

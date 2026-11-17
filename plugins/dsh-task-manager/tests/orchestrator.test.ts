@@ -7,7 +7,9 @@
  * a4: report from a non-captain sessionId is explicitly rejected.
  */
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Status, OrchestratorError } from '../src/records.ts'
@@ -393,6 +395,44 @@ describe('reply — 回复框的答投递给队长会话', () => {
       await expect(t.service.reply('task-a', '   ')).rejects.toMatchObject({ code: 'INVALID_INPUT' })
     } finally {
       await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('setStatus — 关门即落地', () => {
+  it('把任务分支合回项目分支，并把合并提交写进卡片', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'task-manager-merge-'))
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' })
+    await writeFile(join(repo, 'base.txt'), 'base\n')
+    git('init', '-q', '-b', 'main')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
+    // 任务分支上放一个文件，模拟执行会话的产出
+    git('checkout', '-q', '-b', 'task/abc12345')
+    await writeFile(join(repo, 'done.txt'), 'work\n')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'work')
+    git('checkout', '-q', 'main')
+
+    const t = await makeService()
+    try {
+      await t.store.mutate((tasks) => {
+        tasks.push({
+          id: 'task-merge', title: 'x', content: 'y', status: 'waiting-check', runMode: 'cwd',
+          directory: repo, project: repo, worktreeBranch: 'task/abc12345',
+          dispatchRound: 0, needsFinalReview: false, createdAt: 1, updatedAt: 1,
+        })
+      })
+      const done = await t.service.setStatus('task-merge', 'done' as Status)
+      expect(done.status).toBe('done')
+      expect(done.mergeCommit).toMatch(/^[0-9a-f]{7,}$/)
+      expect(existsSync(join(repo, 'done.txt'))).toBe(true)
+      // 再点一次 done 不应重复合并（幂等）
+      const again = await t.service.setStatus('task-merge', 'done' as Status)
+      expect(again.mergeCommit).toBe(done.mergeCommit)
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+      await rm(repo, { recursive: true, force: true })
     }
   })
 })

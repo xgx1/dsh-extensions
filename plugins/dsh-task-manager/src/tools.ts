@@ -461,7 +461,9 @@ export function registerTaskTools(
 
   register(defineTool({
     name: 'task_nudge',
-    description: '催办一个已派发的任务：向其队长会话投递催办文本并记录催办时间。未派发的任务会被告知无法催办。',
+    description:
+      '（仅队长流程）催办一个已派发给队长的任务：向其队长会话投递催办文本并记录催办时间。' +
+      '任务台经 task_dispatch_project 建出的卡没有队长，对它催办只会得到 not dispatched to a captain —— 这不代表执行会话没起来。',
     parameters: {
       taskId: { type: 'string', required: true, description: '任务 id。' },
     },

@@ -365,6 +365,27 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     await git(dir, ['-c', 'user.email=task-console@local', '-c', 'user.name=task-console', 'commit', '-q', '--allow-empty', '-m', 'init: project skeleton'])
   }
 
+  /**
+   * 把任务分支合回项目当前分支（`git merge --no-ff`）。没分支、没仓库、已合过都算无事发生。
+   * @returns 合并提交 id；失败时返回原因（卡片照旧置 done，合并失败要能看见）。
+   */
+  const mergeTaskBranch = async (
+    task: Pick<TaskRecord, 'id' | 'project' | 'worktreeBranch' | 'directory'>,
+  ): Promise<{ commit?: string; error?: string } | undefined> => {
+    const branch = task.worktreeBranch
+    const project = task.project ?? (task.directory === undefined ? undefined : await gitRootOf(task.directory))
+    if (branch === undefined || branch === '' || project === undefined) return undefined
+    try {
+      const merged = await git(project, ['branch', '--list', '--merged', 'HEAD', branch])
+      if (merged.includes(branch)) return undefined // 已经合过
+      await git(project, ['-c', 'user.email=task-console@local', '-c', 'user.name=task-console',
+        'merge', '--no-ff', '-m', `merge: 完成任务 ${task.id.slice(0, 8)}（${branch}）`, branch])
+      return { commit: await git(project, ['rev-parse', '--short', 'HEAD']) }
+    } catch (reason) {
+      return { error: reason instanceof Error ? reason.message.slice(0, 300) : 'merge failed' }
+    }
+  }
+
   /** 读最新落盘状态、改一张任务卡、写回（并发安全，走 store 的写队列）。 */
   const mutateTask = (taskId: string, fn: (task: TaskRecord) => void): Promise<TaskRecord> => {
     return deps.store.mutate((tasks) => {
@@ -431,6 +452,18 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const project = (await gitRootOf(absolute)) ?? absolute
       const store = requireConsoleStore()
       const runtime = deps.resolveRuntime()
+      // 同一项目里正文一模一样的未关闭卡：复用，别再造一张（子弹旅实测重复点两次就两张卡）。
+      const existingTask = (await deps.store.load()).find(
+        (item) => item.project === project && item.status !== 'done' && item.content.trim() === body,
+      )
+      if (existingTask !== undefined) {
+        const reuseManager = await ensureManagerSession(runtime, store, project, {
+          cwd: deps.consoleCwd ?? join(dirname(deps.store.path), 'console'),
+          preset: PROJECT_MANAGER_PRESET,
+        })
+        await deliverToManager(runtime, reuseManager.sessionId, buildProjectBrief({ task: existingTask, project }))
+        return { project, managerSessionId: reuseManager.sessionId, taskId: existingTask.id, delivered: 'live' as const }
+      }
       // 管理器会话统一住在控制台目录：agent-configs 按 cwd 发放工具，项目根目录的
       // 配置表里没有 task_* 白名单。项目路径由任务卡携带，执行会话才落在项目里。
       const manager = await ensureManagerSession(runtime, store, project, {
@@ -549,13 +582,25 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       // 项目路径写进简报——新建项目的目录不可能提前在白名单里。
       const seat = deps.execCwd ?? join(dirname(deps.store.path), 'exec')
       await mkdir(seat, { recursive: true })
-      const created = await create({ cwd: seat, agentPreset: options.agentPreset ?? 'all' })
+      // 执行会话要能把结果写回卡片：优先用 task-exec 预设（组成里挂了 dsh-task-manager/tools）。
+      // 该预设只在开发组成里声明过；生产组成还没加时退回 all —— 退回后任务照做，
+      // 只是 `task_report` 不在工具面里，卡片得人工关单。
+      const preset = options.agentPreset ?? 'task-exec'
+      const created = preset === 'all'
+        ? await create({ cwd: seat, agentPreset: 'all' })
+        : await create({ cwd: seat, agentPreset: preset }).catch(async (reason: unknown) => {
+            const message = reason instanceof Error ? reason.message : ''
+            if (!/preset/i.test(message)) throw reason
+            return create({ cwd: seat, agentPreset: 'all' })
+          })
       const sessionId = created.sessionId
       if (sessionId === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the execution session was created without a session id')
       }
       const task = await mutateTask(taskId, (record) => {
         record.status = 'in-progress'
+        // 身份线：执行会话就是这张卡的"队长"，干完用它自己的会话 id 调 task_report 关单。
+        record.captainSessionId = sessionId
         record.directory = workdir
         if (worktree !== undefined) record.worktreeBranch = worktree.branch
         record.conversations = [
@@ -695,13 +740,19 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
 
     async setStatus(taskId, status) {
       const validStatus = assertStatus(status)
-      return deps.store.mutate((tasks) => {
-        const task = tasks.find((item) => item.id === taskId)
-        if (task === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
-        task.status = validStatus
-        task.updatedAt = now()
-        return task
+      const before = (await deps.store.load()).find((item) => item.id === taskId)
+      // 用户验收通过（done）即落地：把 `task/<id>` 分支合回项目默认分支。
+      // 交付物只活在 worktree 里的话，"项目做出来了"对人不可见。
+      const merge = validStatus === 'done' && before !== undefined ? await mergeTaskBranch(before) : undefined
+      const task = await deps.store.mutate((tasks) => {
+        const target = tasks.find((item) => item.id === taskId)
+        if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+        target.status = validStatus
+        target.updatedAt = now()
+        if (merge?.commit !== undefined) target.mergeCommit = merge.commit
+        return target
       })
+      return { ...task, ...(merge?.error === undefined ? {} : { mergeError: merge.error }) }
     },
 
     async list(filter) {
