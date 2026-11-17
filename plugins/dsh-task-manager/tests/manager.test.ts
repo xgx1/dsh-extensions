@@ -135,10 +135,12 @@ describe('card questions and answers', () => {
       })
       const result = await service.startExecution('abcdef123456')
       expect(result.status).toBe('in-progress')
-      expect(created[0]?.cwd).toBe(`${repo}-abcdef12`)
+      // 会话坐在执行位（白名单内），项目路径靠简报给出
+      expect(created[0]?.cwd).toBe(`${dir}/exec`)
       expect(created[0]?.agentPreset).toBe('all')
       const task = (await service.list()).find((item) => item.id === 'abcdef123456')
       expect(task?.worktreeBranch).toBe('task/abcdef12')
+      expect(task?.directory).toBe(`${repo}-abcdef12`)
     } finally {
       await rm(repo, { recursive: true, force: true })
       await rm(`${repo}-abcdef12`, { recursive: true, force: true })

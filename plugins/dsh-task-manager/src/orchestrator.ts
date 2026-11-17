@@ -23,6 +23,8 @@
  * owns the list) via applyReportHuman().
  */
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   STATUSES,
@@ -140,6 +142,8 @@ export interface TaskManagerDeps {
   consoleStore?: ConsoleStore
   /** 大管理器会话的工作目录（默认 stateDir 下的 console 目录）。 */
   consoleCwd?: string
+  /** 执行会话的座位目录（agent-configs 登记过 core 工具）；默认 <store 目录>/exec。 */
+  execCwd?: string
   /** Testable clock. */
   now?: () => number
 }
@@ -348,6 +352,19 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     }
   }
 
+  /**
+   * 确保项目目录存在且是 git 仓库：执行会话要在 `task/<前 8 位>` 分支的 worktree 里开工，
+   * 而派单的调用方（大管理器）常常拿到的是一个还不存在的路径。
+   */
+  const ensureProjectRepo = async (dir: string): Promise<void> => {
+    await mkdir(dir, { recursive: true })
+    // 只看目录自己有没有 .git：项目常常落在另一个仓库的子目录里（.scratch/…），
+    // 那种情况要建自己的仓库，否则 gitRootOf 会一路走到外层仓库根。
+    if (existsSync(join(dir, '.git'))) return
+    await git(dir, ['init', '-q'])
+    await git(dir, ['-c', 'user.email=task-console@local', '-c', 'user.name=task-console', 'commit', '-q', '--allow-empty', '-m', 'init: project skeleton'])
+  }
+
   /** 读最新落盘状态、改一张任务卡、写回（并发安全，走 store 的写队列）。 */
   const mutateTask = (taskId: string, fn: (task: TaskRecord) => void): Promise<TaskRecord> => {
     return deps.store.mutate((tasks) => {
@@ -394,10 +411,23 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const hinted = input.project !== undefined && input.project !== ''
         ? input.project
         : input.cwd
-      if (hinted === undefined || hinted === '') {
+      // 面板只有文本框：调用方常把目标目录写在正文里，缺 project/cwd 时从正文里捞绝对路径。
+      const fromText = hinted === undefined || hinted === ''
+        ? /\/[\w./-]+/.exec(body)?.[0]
+        : undefined
+      const picked = hinted ?? fromText
+      if (picked === undefined || picked === '') {
         throw new OrchestratorError('INVALID_INPUT', 'a project (git root or working directory) is required')
       }
-      const absolute = resolve(hinted)
+      let absolute = resolve(picked)
+      // 正文里写的项目目录比推断出来的仓库根更具体（用户在面板里指的就是它）：
+      // 大管理器常把 `.scratch/x/y` 剪成外层仓库根，这里按正文纠回来。
+      const mentioned = /\/[\w./-]+/.exec(body)?.[0]
+      if (mentioned !== undefined && mentioned !== absolute) {
+        const candidate = resolve(mentioned)
+        if (candidate.startsWith(`${absolute}/`)) absolute = candidate
+      }
+      await ensureProjectRepo(absolute)
       const project = (await gitRootOf(absolute)) ?? absolute
       const store = requireConsoleStore()
       const runtime = deps.resolveRuntime()
@@ -515,7 +545,11 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       // 只产 patch：执行会话跑在独立 worktree 分支上，宿主侧从不 push。
       const worktree = await prepareWorktree(project, taskId)
       const workdir = worktree?.dir ?? project
-      const created = await create({ cwd: workdir, agentPreset: options.agentPreset ?? 'all' })
+      // 会话目录固定在执行位（agent-configs 里登记过、拿全套 core 工具）；
+      // 项目路径写进简报——新建项目的目录不可能提前在白名单里。
+      const seat = deps.execCwd ?? join(dirname(deps.store.path), 'exec')
+      await mkdir(seat, { recursive: true })
+      const created = await create({ cwd: seat, agentPreset: options.agentPreset ?? 'all' })
       const sessionId = created.sessionId
       if (sessionId === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the execution session was created without a session id')
@@ -529,7 +563,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
           { id: sessionId, shortId: sessionId.replace(/^session-/, '').slice(0, 8), cwd: workdir },
         ]
       })
-      await deliverHumanMessage(deps.resolveRuntime(), sessionId, buildExecutionBrief({ task, project }))
+      await deliverHumanMessage(deps.resolveRuntime(), sessionId, buildExecutionBrief({ task, project, workdir }))
       return { taskId, sessionId, status: task.status }
     },
 

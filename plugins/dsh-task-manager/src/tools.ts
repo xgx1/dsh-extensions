@@ -105,7 +105,7 @@ export function registerTaskTools(
     parameters: {
       text: { type: 'string', required: true, description: '任务正文（用户的原始描述，不要改写需求）。' },
       project: { type: 'string', description: '项目主键：git 仓库根路径（绝对路径）。省略时从 cwd 探测。' },
-      cwd: { type: 'string', description: '判断项目的目录提示；project 已给时可省略。' },
+      cwd: { type: 'string', description: '项目目录（原样传，不要向上找仓库根；host 会 git init）；project 已给时可省略。' },
       title: { type: 'string', description: '短标题（40 字内）；省略时取正文首行。' },
       sources: {
         type: 'array',

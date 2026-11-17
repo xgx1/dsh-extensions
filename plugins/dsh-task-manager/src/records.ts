@@ -392,12 +392,12 @@ export function buildConsoleAssignment(text: string, cwdHint?: string, sources?:
     '【任务台·指派】用户把这件事交给你：',
     '',
     text.trim(),
-    ...(cwdHint === undefined ? [] : ['', `- 指派时的工作目录提示: ${cwdHint}`]),
+    ...(cwdHint === undefined ? [] : ['', `- 项目路径（原样传给 task_dispatch_project 的 cwd，不要向上找仓库根）: ${cwdHint}`]),
     ...(sources === undefined || sources.length === 0 ? [] : [`- 本单订阅的触发器: ${sources.join(' / ')}（派单时原样传给 task_dispatch_project 的 sources）`]),
     '',
     '你只做一件事：调用 task_dispatch_project 派给该项目的项目管理器。',
-    '- project 填 git 仓库根路径；不确定就先调 task_console_state 看已有哪些项目。',
-    '- 也不需要先跑 git 核对：传 cwd=上面的工作目录提示，host 会自己解析出仓库根。',
+    '- 有「项目路径」就原样传 cwd，**不要改成上层目录**：host 会在那个目录建仓库与 worktree。',
+    '- 没有项目路径时，看正文里出现的绝对路径；还是没有就调 task_console_state 看已有哪些项目。',
     '- 你没有 shell、没有文件读写，只能用 task_* 工具；不要输出工具格式的文本，直接发起工具调用。',
   ].join('\n')
 }
@@ -437,12 +437,14 @@ export function buildProjectBrief(input: {
 export function buildExecutionBrief(input: {
   task: Pick<TaskRecord, 'id' | 'title' | 'content'>
   project: string
+  workdir?: string
 }): string {
   return [
     `【执行任务】${input.task.title}`,
     '',
     `- taskId: ${input.task.id}`,
     `- 项目: ${input.project}`,
+    ...(input.workdir === undefined ? [] : [`- 工作目录（干活就在这里，用 bash 的 workdir 参数或 cd 进去）: ${input.workdir}`]),
     `- 需求:`,
     input.task.content.trim(),
     '',

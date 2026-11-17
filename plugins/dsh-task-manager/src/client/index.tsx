@@ -314,6 +314,8 @@ const dicts: Record<string, Record<string, string>> = {
     sendReply: '发送回复',
     assignTitle: '把任务交给管理器',
     assignPlaceholder: '把要做的事贴在这里。大管理器判断属于哪个项目，再交给该项目的项目管理器。',
+    projectPath: '项目路径',
+    projectPathPlaceholder: '项目路径（绝对路径，留空则从任务正文里找）',
     assignButton: '派下去',
     assignSent: '已交给大管理器。',
     assignError: '派发失败。',
@@ -1371,6 +1373,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [filter, setFilter] = useState<'all' | 'assigned' | 'questions' | 'next' | 'running'>('all')
   const [assignText, setAssignText] = useState('')
+  const [projectPath, setProjectPath] = useState('')
   const [assignNotice, setAssignNotice] = useState<string | null>(null)
   const [assigning, setAssigning] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1453,16 +1456,17 @@ function TaskView(props: { sessionId?: string }): ReactElement {
     running: tasks.filter(isRunning).length,
   }
 
-  /** 派给大管理器：走 /assign，由它判断项目并把活交给该项目的项目管理器。 */
+  /** 派给大管理器：由它建卡并交给该项目的项目管理器。 */
   const assign = async (): Promise<void> => {
     if (assignText.trim() === '') return
     setAssigning(true)
     setAssignNotice(null)
     try {
-      const hint = context?.currentDir
+      // 项目路径只认用户填的：早先拿当前会话目录当 hint，会把任务派到错的仓库。
+      const hint = projectPath.trim()
       await postJSON<{ managerSessionId: string }>('/plugins/dsh-task-manager/dispatch', {
         text: assignText,
-        ...(hint === undefined ? {} : { cwd: hint }),
+        ...(hint === '' ? {} : { cwd: hint }),
       })
       setAssignText('')
       setAssignNotice(translate('assignSent'))
@@ -1508,6 +1512,13 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         {view === 'list' ? (
           <div className="dsh-taskm-reply">
             <span className="dsh-taskm-detail-label">{translate('assignTitle')}</span>
+            <input
+              className="dsh-taskm-input"
+              value={projectPath}
+              aria-label={translate('projectPath')}
+              placeholder={translate('projectPathPlaceholder')}
+              onChange={(event) => setProjectPath(event.target.value)}
+            />
             <textarea
               className="dsh-taskm-textarea dsh-taskm-textarea-sm"
               value={assignText}
