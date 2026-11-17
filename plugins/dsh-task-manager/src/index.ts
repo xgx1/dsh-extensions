@@ -502,6 +502,30 @@ export function apply(ctx: Context, config?: Config): void {
       },
     }), 'task-manager: set-status route')
 
+    // 对账：卡片状态说"进行中"、实际没有会话在干活时纠正过来（2026-11-17 用户报一堆卡挂着没人处理）。
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/reconcile',
+      handler: async (_req, res) => {
+        try {
+          json(res, 200, await taskManager.reconcile())
+        } catch (error) {
+          json(res, 500, { error: error instanceof Error ? error.message : 'reconcile failed' })
+        }
+      },
+    }), 'task-manager: reconcile route')
+
+    // 定时对账：启动 20 秒后一次，之后每 3 分钟一次。
+    ctx.effect(() => {
+      const sweep = (): void => { void taskManager.reconcile().catch(() => undefined) }
+      const first = setTimeout(sweep, 20_000)
+      const timer = setInterval(sweep, 180_000)
+      return () => {
+        clearTimeout(first)
+        clearInterval(timer)
+      }
+    }, 'task-manager: reconcile timer')
+
     // 纳管视图（ADR-0011）：卡片是 session_manager 状态的派生渲染，不落第二份任务表。
     /** 任务卡上「按建议继续 / 自己答」：写回答复并投给该项目的项目管理器。 */
     ctx.effect(() => webServer.register({

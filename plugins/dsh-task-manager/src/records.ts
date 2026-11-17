@@ -37,6 +37,8 @@ export interface TaskRecord {
   worktreeBranch?: string
   /** 用户验收通过后把任务分支合回项目分支的提交 id（`setStatus(done)` 副作用）。 */
   mergeCommit?: string
+  /** 对账器自动重起执行会话的次数（上限 1，避免无限重试）。 */
+  autoRetries?: number
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入。 */
   category?: string

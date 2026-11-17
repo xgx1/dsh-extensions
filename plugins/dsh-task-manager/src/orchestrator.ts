@@ -24,7 +24,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir, stat } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   STATUSES,
@@ -259,6 +259,14 @@ export interface TaskManagerService {
    * 起执行会话：在项目目录里开一个普通会话（默认预设 standard），投开工简报并转 in-progress。
    */
   startExecution(taskId: string, options?: { agentPreset?: string }): Promise<{ taskId: string; sessionId: string; status: Status }>
+  /** 对账：纠正"卡片在进行中、实际没人干活"的状态。 */
+  reconcile(options?: { idleMs?: number; limit?: number }): Promise<{
+    examined: number
+    toWaitingCheck: number
+    retried: number
+    blocked: number
+    left: number
+  }>
   /**
    * 配置项目的触发器订阅（inbox / github / ci）：配置挂项目，任务只引用。
    * @param sources - 订阅的触发器键；空数组表示不订阅。
@@ -331,8 +339,26 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
   }
 
   /**
+   * 会话最后活动时间（epoch ms）：在 `<DSH_HOME>/sessions` 下找该会话的目录，取 mtime。
+   * 找不到（会话早就没了）返回 undefined —— 调用方按"没人干活"处理。
+   */
+  const sessionActivity = async (dshHome: string, sessionId: string | undefined): Promise<number | undefined> => {
+    if (sessionId === undefined || sessionId === '') return undefined
+    const root = join(dshHome, 'sessions')
+    const buckets = await readdir(root).catch(() => [] as string[])
+    let newest: number | undefined
+    for (const bucket of buckets) {
+      const dir = join(root, bucket, `session-${sessionId.replace(/^session-/, '')}`)
+      const stats = await stat(dir).catch(() => undefined)
+      if (stats === undefined) continue
+      if (newest === undefined || stats.mtimeMs > newest) newest = stats.mtimeMs
+    }
+    return newest
+  }
+
+  /**
    * 为一张任务卡准备 worktree（分支 `task/<前 8 位>`）。不是 git 仓库、或分支/目录已存在时
-   * 返回 undefined，执行会话就落在项目目录里——失败不阻断开工。
+   * 返回 undefined，执行会话就落在项目目录里 —— 失败不阻断开工。
    */
   const prepareWorktree = async (
     project: string,
@@ -763,6 +789,76 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         return target
       })
       return { ...task, ...(merge?.error === undefined ? {} : { mergeError: merge.error }) }
+    },
+
+    /**
+     * 对账：把"卡片说在进行中、实际没有会话在干活"的卡纠正过来。
+     *
+     * 用户报过一个直接后果（2026-11-17）：一堆 in-progress 的卡，背后根本没有会话在跑 ——
+     * 执行会话结束了却没回报，卡片就永远停在"进行中"。这里按证据分流：
+     * - 工作区里已经有提交 → 视为干完了，转「待测试」并把分支/提交写进回报；
+     * - 什么都没有且还没重试过 → 重起一次执行会话；
+     * - 重试过还是空的 → 转 problem，别再装成在跑。
+     */
+    async reconcile(options?: { idleMs?: number; limit?: number }) {
+      const idleMs = options?.idleMs ?? 10 * 60_000
+      const limit = options?.limit ?? 20
+      const dshHome = dirname(dirname(deps.store.path))
+      const tasks = await deps.store.load()
+      const stale = tasks
+        .filter((task) => task.status === 'in-progress')
+        .slice(0, limit)
+      const summary = { examined: stale.length, toWaitingCheck: 0, retried: 0, blocked: 0, left: 0 }
+      for (const task of stale) {
+        if (task.report !== undefined) {
+          await mutateTask(task.id, (record) => { record.status = 'waiting-check' })
+          summary.toWaitingCheck += 1
+          continue
+        }
+        const activity = await sessionActivity(dshHome, task.captainSessionId)
+        if (activity !== undefined && now() - activity < idleMs) {
+          summary.left += 1
+          continue
+        }
+        const project = task.project ?? task.directory
+        const branch = task.worktreeBranch
+        const commits = project === undefined || branch === undefined
+          ? ''
+          : await git(project, ['rev-list', '--count', `HEAD..${branch}`]).catch(() => '')
+        if (commits !== '' && commits !== '0' && project !== undefined && branch !== undefined) {
+          const head = await git(project, ['rev-parse', '--short', branch]).catch(() => '')
+          await mutateTask(task.id, (record) => {
+            record.status = 'waiting-check'
+            record.report = {
+              text: '自动对账：执行会话已结束，工作区里有提交，按已完成待验收。',
+              at: now(),
+              evidence: [`分支 ${branch}（${commits} 个提交）`, `提交 ${head}`],
+            }
+          })
+          summary.toWaitingCheck += 1
+          continue
+        }
+        if ((task.autoRetries ?? 0) < 1 && project !== undefined) {
+          await mutateTask(task.id, (record) => { record.autoRetries = (record.autoRetries ?? 0) + 1 })
+          try {
+            await this.startExecution(task.id)
+            summary.retried += 1
+            continue
+          } catch {
+            // 起不来就按受阻处理
+          }
+        }
+        await mutateTask(task.id, (record) => {
+          record.status = 'problem'
+          record.report = {
+            text: '自动对账：执行会话已结束且工作区没有产出，自动重试也没能起新会话。',
+            at: now(),
+            evidence: [],
+          }
+        })
+        summary.blocked += 1
+      }
+      return summary
     },
 
     async list(filter) {

@@ -242,6 +242,10 @@ const dicts: Record<string, Record<string, string>> = {
     filterRunning: 'Running',
     mergedCommit: 'Merged as',
     byProject: 'By project',
+    superAgentLabel: 'Super Agent',
+    superAgentMissing: 'Super Agent: not mounted in this instance',
+    superAgentPaused: 'paused',
+    superAgentDecisions: 'router decisions',
     projectTasks: 'tasks',
     noProjects: 'No project has a task yet.',
     questionsSection: 'Questions',
@@ -336,6 +340,10 @@ const dicts: Record<string, Record<string, string>> = {
     filterRunning: '运行中',
     mergedCommit: '已合入提交',
     byProject: '按项目',
+    superAgentLabel: 'Super Agent',
+    superAgentMissing: 'Super Agent：本实例没挂',
+    superAgentPaused: '已暂停',
+    superAgentDecisions: '次路由决策',
     projectTasks: '任务',
     noProjects: '还没有任何项目有任务。',
     questionsSection: '问题',
@@ -1429,6 +1437,30 @@ function ProjectList(props: { tasks: Task[]; onPick: (project: string) => void }
   )
 }
 
+/** Super Agent 控制面里任务台看的那一小块（`GET /api/super-agent/state`）。 */
+interface SuperAgentState {
+  mode?: { accept?: string; paused?: boolean }
+  health?: { state?: string; note?: string }
+  workers?: { running?: number; total?: number }
+  router?: { decisions?: number }
+}
+
+/** 一行状态：有 Super Agent 就报它，没有就说明没装。 */
+function SuperAgentChip(props: { state: SuperAgentState | null }): ReactElement {
+  const state = props.state
+  if (state === null) return <span className="dsh-taskm-hint">{translate('superAgentMissing')}</span>
+  const health = state.health?.state ?? 'unknown'
+  const accept = state.mode?.accept ?? '?'
+  const paused = state.mode?.paused === true
+  return (
+    <span className="dsh-taskm-hint">
+      {translate('superAgentLabel')} · {health}
+      {paused ? ` · ${translate('superAgentPaused')}` : ` · ${accept}`}
+      {typeof state.router?.decisions === 'number' ? ` · ${state.router.decisions} ${translate('superAgentDecisions')}` : ''}
+    </span>
+  )
+}
+
 /** Task panel view: the center conversation area when the task view is active. */
 function TaskView(props: { sessionId?: string }): ReactElement {
   const [view, setView] = useState<'list' | 'detail'>('list')
@@ -1449,12 +1481,16 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [assigning, setAssigning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** Super Agent 控制面（另一套组件）：只读状态，用来判断"执行侧在不在"。 */
+  const [superAgent, setSuperAgent] = useState<SuperAgentState | null>(null)
   const sessionIdRef = useRef(props.sessionId)
   sessionIdRef.current = props.sessionId
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
       setError(null)
+      const superState = getJSON<SuperAgentState>('/api/super-agent/state').catch(() => undefined)
+      void superState.then((value) => setSuperAgent(value ?? null))
       const [state, ctx, view] = await Promise.all([
         getJSON<{ tasks: Task[] }>('/plugins/dsh-task-manager/state'),
         getJSON<ContextInfo>(
@@ -1642,6 +1678,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
             >
               {translate('byProject')}
             </button>
+            <SuperAgentChip state={superAgent} />
             {todoCount > 0 ? <span className="dsh-taskm-hint">{translate('todoOnly')} · {todoCount}</span> : null}
           </div>
         ) : null}
