@@ -417,7 +417,9 @@ function shortSessionId(id: string): string {
   return id.replace(/^session-/, '').slice(0, 8) || id.slice(0, 8)
 }
 
-function timeText(ms: number): string {
+function timeText(value: number): string {
+  // 调用方给的可能是秒（会话元数据）也可能是毫秒（任务卡），统一按毫秒算。
+  const ms = value > 0 && value < 1e12 ? value * 1000 : value
   const delta = Date.now() - ms
   if (delta < 60_000) return '刚刚'
   if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
@@ -1427,6 +1429,9 @@ function TaskView(props: { sessionId?: string }): ReactElement {
 
   useEffect(() => {
     void refresh()
+    // 别人（管理器/执行会话）在后台改卡，面板得自己跟上，否则只能手动刷新页面。
+    const timer = setInterval(() => void refresh(), 5000)
+    return () => clearInterval(timer)
   }, [refresh])
 
   const onCreated = (): void => {
