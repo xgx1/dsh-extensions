@@ -240,6 +240,7 @@ export function apply(ctx: Context, config?: Config): void {
       subagents: ctx.get('subagents') as SubagentsLike | undefined,
       agents: ctx.get('agents') as AgentsRegistryLike | undefined,
       sessionController: ctx.get('sessionController') as ReplyRuntime['sessionController'],
+      workspaces: ctx.get('workspaceRegistry') as ReplyRuntime['workspaces'],
     }),
   })
   // Publish for the M2 model tools (consumed via ctx.get('taskManager')).

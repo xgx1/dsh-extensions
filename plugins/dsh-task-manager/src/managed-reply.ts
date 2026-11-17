@@ -28,12 +28,16 @@ export interface SessionCreateRequest {
 /** 回复投递需要的运行时服务；两者都可能缺席，缺席时明确失败而不是静默丢弃。 */
 export interface ReplyRuntime {
   agents?: { get(sessionId: string): ReplyTarget | undefined }
+  /** `ctx.workspaceRegistry`：把任务台起的会话放进工作区，而不是「未分组」。 */
+  workspaces?: WorkspaceSeatRegistry
   sessionController?: {
     resolveAgent(sessionId: string): Promise<{ agent?: ReplyTarget; error?: unknown }>
     /** 任务台的两层管理器用它在无宿主会话的情况下建 / 唤醒会话（ADR-0014）。 */
     create?(request: SessionCreateRequest): Promise<{ sessionId?: string }>
   }
 }
+
+import type { WorkspaceSeatRegistry } from './workspaces.ts'
 
 /** 一条人类消息：与 `createOutboundMessage` 同构，只有 source 不同。 */
 function humanMessage(text: string): unknown {

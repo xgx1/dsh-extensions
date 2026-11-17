@@ -135,8 +135,8 @@ describe('card questions and answers', () => {
       })
       const result = await service.startExecution('abcdef123456')
       expect(result.status).toBe('in-progress')
-      // 会话坐在执行位（白名单内），项目路径靠简报给出
-      expect(created[0]?.cwd).toBe(`${dir}/exec`)
+      // 会话坐在它自己的任务工作区里（cwd 必须等于工作区 path 才挂得进去）
+      expect(created[0]?.cwd).toMatch(/-abcdef12$/)
       // 执行会话要能收尾回报，所以默认挂 task-exec 预设（内含 dsh-task-manager/tools）。
       expect(created[0]?.agentPreset).toBe('task-exec')
       const task = (await service.list()).find((item) => item.id === 'abcdef123456')

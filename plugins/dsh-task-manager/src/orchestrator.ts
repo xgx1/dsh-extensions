@@ -65,6 +65,8 @@ import {
   gitRootOf,
 } from './console.ts'
 import { deliverHumanMessage } from './managed-reply.ts'
+import { seatSessions } from './workspaces.ts'
+import { registerExecSeat } from './seats.ts'
 
 /** Service key published on the host context (consumed by M2 tools via ctx.get). */
 export const TASK_MANAGER_SERVICE = 'taskManager'
@@ -130,6 +132,8 @@ export interface OrchestratorRuntime {
   agents?: AgentsRegistryLike
   /** 会话控制器：两层管理器用它建 / 唤醒没有宿主会话的会话（ADR-0014）。 */
   sessionController?: ReplyRuntime['sessionController']
+  /** 工作区注册表：把任务台起的会话挂进对应工作区（2026-11-17 用户要求，别再堆在「未分组」）。 */
+  workspaces?: ReplyRuntime['workspaces']
 }
 
 /** Dependencies of the taskManager service. */
@@ -578,9 +582,12 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       // 只产 patch：执行会话跑在独立 worktree 分支上，宿主侧从不 push。
       const worktree = await prepareWorktree(project, taskId)
       const workdir = worktree?.dir ?? project
-      // 会话目录固定在执行位（agent-configs 里登记过、拿全套 core 工具）；
-      // 项目路径写进简报——新建项目的目录不可能提前在白名单里。
-      const seat = deps.execCwd ?? join(dirname(deps.store.path), 'exec')
+      // 会话目录就是它在任务工作区里的那个目录：工作区成员校验要求 cwd 等于工作区 path，
+      // 这样执行会话才进得了自己的工作区而不是「未分组」。工具白名单由 agent-configs
+      // 的生成器按 tasks.json 给这些目录发放（core + task-exec）。
+      const seat = workdir
+      // 新 worktree 不在 agent-configs 白名单里 → 先登记再建会话，否则执行会话零工具。
+      await registerExecSeat(dirname(deps.store.path), seat)
       await mkdir(seat, { recursive: true })
       // 执行会话要能把结果写回卡片：优先用 task-exec 预设（组成里挂了 dsh-task-manager/tools）。
       // 该预设只在开发组成里声明过；生产组成还没加时退回 all —— 退回后任务照做，
@@ -597,6 +604,9 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       if (sessionId === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the execution session was created without a session id')
       }
+      // 分组：执行会话进它自己的任务工作区（path = worktree），标题「项目 · 任务」。
+      const seatTitle = `${project.split('/').filter(Boolean).pop() ?? project} · ${target.title.slice(0, 24)}`
+      await seatSessions(deps.resolveRuntime().workspaces, workdir, seatTitle, [sessionId])
       const task = await mutateTask(taskId, (record) => {
         record.status = 'in-progress'
         // 身份线：执行会话就是这张卡的"队长"，干完用它自己的会话 id 调 task_report 关单。

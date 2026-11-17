@@ -241,6 +241,9 @@ const dicts: Record<string, Record<string, string>> = {
     filterNext: 'Next steps',
     filterRunning: 'Running',
     mergedCommit: 'Merged as',
+    byProject: 'By project',
+    projectTasks: 'tasks',
+    noProjects: 'No project has a task yet.',
     questionsSection: 'Questions',
     nextStepsSection: 'Next steps',
     projectLabel: 'Project',
@@ -332,6 +335,9 @@ const dicts: Record<string, Record<string, string>> = {
     filterNext: '下一步',
     filterRunning: '运行中',
     mergedCommit: '已合入提交',
+    byProject: '按项目',
+    projectTasks: '任务',
+    noProjects: '还没有任何项目有任务。',
     questionsSection: '问题',
     nextStepsSection: '下一步',
     projectLabel: '项目',
@@ -1377,6 +1383,52 @@ function TaskList(props: {
   )
 }
 
+/**
+ * 「按项目」总览：每个任务台一行 —— 项目路径、各状态计数、最近更新、最近一张卡的标题。
+ * 点一行回到任务列表，只看这个项目。
+ */
+function ProjectList(props: { tasks: Task[]; onPick: (project: string) => void }): ReactElement {
+  const groups = new Map<string, Task[]>()
+  for (const task of props.tasks) {
+    const key = task.project ?? ''
+    if (key === '') continue
+    groups.set(key, [...(groups.get(key) ?? []), task])
+  }
+  if (groups.size === 0) {
+    return <div className="dsh-taskm-empty">{translate('noProjects')}</div>
+  }
+  const rows = [...groups.entries()].sort((a, b) => {
+    const latest = (list: Task[]): number => Math.max(...list.map((task) => task.updatedAt))
+    return latest(b[1]) - latest(a[1])
+  })
+  return (
+    <div className="dsh-taskm-list">
+      {rows.map(([project, list]) => {
+        const count = (status: Status): number => list.filter((task) => task.status === status).length
+        const newest = [...list].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        return (
+          <button key={project} type="button" className="dsh-taskm-card" onClick={() => props.onPick(project)}>
+            <div className="dsh-taskm-card-title">{project.split('/').filter(Boolean).pop() ?? project}</div>
+            <div className="dsh-taskm-card-sub">{shortPath(project)}</div>
+            <div className="dsh-taskm-card-sub">
+              {translate('projectTasks')} {list.length}
+              {count('waiting-check') > 0 ? ` · ${translate('statusWaitingCheck')} ${count('waiting-check')}` : ''}
+              {count('in-progress') > 0 ? ` · ${translate('statusInProgress')} ${count('in-progress')}` : ''}
+              {count('problem') > 0 ? ` · ${translate('statusProblem')} ${count('problem')}` : ''}
+              {count('done') > 0 ? ` · ${translate('statusDone')} ${count('done')}` : ''}
+            </div>
+            {newest === undefined ? null : (
+              <div className="dsh-taskm-card-sub">
+                {newest.title.slice(0, 40)} · {timeText(newest.updatedAt)}
+              </div>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Task panel view: the center conversation area when the task view is active. */
 function TaskView(props: { sessionId?: string }): ReactElement {
   const [view, setView] = useState<'list' | 'detail'>('list')
@@ -1388,6 +1440,9 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState('')
   const [filter, setFilter] = useState<'all' | 'assigned' | 'questions' | 'next' | 'running'>('all')
+  /** 「按项目」总览：每个任务台一行（项目路径 + 会话 + 各状态计数），点一行只看该项目。 */
+  const [byProject, setByProject] = useState(false)
+  const [projectFilter, setProjectFilter] = useState('')
   const [assignText, setAssignText] = useState('')
   const [projectPath, setProjectPath] = useState('')
   const [assignNotice, setAssignNotice] = useState<string | null>(null)
@@ -1470,7 +1525,9 @@ function TaskView(props: { sessionId?: string }): ReactElement {
     if (filter === 'running') return isRunning(task)
     return true
   }
-  const filteredTasks = byCategory.filter(matchesFilter)
+  const filteredTasks = byCategory
+    .filter((task) => projectFilter === '' || task.project === projectFilter)
+    .filter(matchesFilter)
   const todoCount = tasks.filter(pendingTodo).length
   const counts = {
     all: tasks.length,
@@ -1575,6 +1632,16 @@ function TaskView(props: { sessionId?: string }): ReactElement {
                 {translate(label)}{counts[key] > 0 ? ` · ${counts[key]}` : ''}
               </button>
             ))}
+            <button
+              type="button"
+              className={byProject ? 'dsh-taskm-primary' : 'dsh-taskm-main-create'}
+              onClick={() => {
+                setByProject(!byProject)
+                if (byProject) setProjectFilter('')
+              }}
+            >
+              {translate('byProject')}
+            </button>
             {todoCount > 0 ? <span className="dsh-taskm-hint">{translate('todoOnly')} · {todoCount}</span> : null}
           </div>
         ) : null}
@@ -1589,7 +1656,15 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         {view === 'list' && managed.length > 0 ? (
           <div className="dsh-taskm-hint">{translate('managedSection')} · {managed.length}</div>
         ) : null}
-        {view === 'list' ? (managed.length > 0 ? (
+        {view === 'list' && byProject ? (
+          <ProjectList
+            tasks={tasks}
+            onPick={(project) => {
+              setProjectFilter(project)
+              setByProject(false)
+            }}
+          />
+        ) : view === 'list' ? (managed.length > 0 ? (
           <ManagedList cards={managed} onReplied={() => { void refresh() }} />
         ) : (
           <TaskList

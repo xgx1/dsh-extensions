@@ -8,9 +8,11 @@
  * 重启后按 `console.json` 里的 sessionId 冷恢复（`reusable: () => true`）。
  * 投递复用 managed-reply 的人类消息路径，所以管理器收到的是真实用户输入。
  */
+import { mkdir } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { OrchestratorError } from './records.ts'
+import { seatSessions } from './workspaces.ts'
 import { deliverHumanMessage, type ReplyRuntime, type ReplyTarget, type SessionCreateRequest } from './managed-reply.ts'
 import type { ConsoleManagerRecord, ConsoleState, ConsoleStore } from './stores.ts'
 
@@ -88,6 +90,8 @@ export async function ensureManagerSession(
       'sessionController cannot create sessions; cannot start a manager conversation',
     )
   }
+  // 工作区要求目录存在：管理器座位目录按需建出来。
+  await mkdir(request.cwd, { recursive: true }).catch(() => undefined)
   const state = await store.load()
   const existing = registeredManager(state, project)
   const sessionId = await createManagerSession(create, existing, request)
@@ -104,6 +108,9 @@ export async function ensureManagerSession(
     updatedAt: now,
   }
   await persistManager(store, project, record)
+  // 分组：管理器会话进「任务台·管理器」工作区（没有这个服务时静默跳过）。
+  // 用记录里的真实 cwd —— 老会话可能还坐在旧的 console 目录。
+  await seatSessions(runtime.workspaces, record.cwd, '任务台·管理器', [sessionId])
   return record
 }
 
