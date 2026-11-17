@@ -799,9 +799,13 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       }
     })
     const { subagents } = deps.resolveRuntime()
-    if (subagents === undefined) {
+    // 宿主不一定给 startContinuable（dev 实况：对象在、方法没有）——报清楚，别让上层吃 TypeError。
+    if (subagents === undefined || typeof subagents.startContinuable !== 'function') {
       await rollbackSessionId(category, childId)
-      throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'subagents service is unavailable; cannot create a captain session')
+      throw new OrchestratorError(
+        'DELIVERY_UNAVAILABLE',
+        'captain sessions need subagents.startContinuable, which this host does not provide; use task_dispatch_project instead',
+      )
     }
     try {
       await subagents.startContinuable({

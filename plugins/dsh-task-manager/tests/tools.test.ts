@@ -124,6 +124,8 @@ describe('管理工具（exec.agent.id 作为派发父会话）', () => {
       expect(created.needsFinalReview).toBe(true)
       expect(created.status).toBe('not-started')
       expect(created.id).toBeTruthy()
+      // output.schema 是 additionalProperties:false：多带一个字段就会在运行期校验失败
+      expect(Object.keys(created).sort()).toEqual(['directory', 'id', 'needsFinalReview', 'status', 'title'])
     } finally {
       await rm(t.dir, { recursive: true, force: true })
     }

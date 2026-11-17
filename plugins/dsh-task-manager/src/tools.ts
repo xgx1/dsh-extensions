@@ -343,13 +343,22 @@ export function registerTaskTools(
         text: `已建单：「${value.title}」（${short(String(value.id))}）状态 not-started${value.needsFinalReview === true ? '，需终审' : ''}。用 task_assign 派发给队长。`,
       }],
     },
-    execute: async (args) =>
-      service.create({
+    // 返回值必须与 output.schema 逐字对齐（additionalProperties: false），否则运行期校验失败。
+    execute: async (args) => {
+      const task = await service.create({
         content: args.content,
         ...(args.title !== undefined ? { title: args.title } : {}),
         ...(args.directory !== undefined ? { directory: args.directory } : {}),
         ...(args.needsFinalReview !== undefined ? { needsFinalReview: args.needsFinalReview } : {}),
-      }),
+      })
+      return {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        directory: task.directory,
+        needsFinalReview: task.needsFinalReview,
+      }
+    },
   }), 'task-manager: task_create tool')
 
   register(defineTool({
