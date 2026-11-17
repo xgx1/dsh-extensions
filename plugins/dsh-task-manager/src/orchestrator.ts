@@ -67,6 +67,7 @@ import {
 import { deliverHumanMessage } from './managed-reply.ts'
 import { seatSessions } from './workspaces.ts'
 import { registerExecSeat } from './seats.ts'
+import { dispatchToSuperAgent } from './superagent.ts'
 
 /** Service key published on the host context (consumed by M2 tools via ctx.get). */
 export const TASK_MANAGER_SERVICE = 'taskManager'
@@ -615,6 +616,30 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       // 新 worktree 不在 agent-configs 白名单里 → 先登记再建会话，否则执行会话零工具。
       await registerExecSeat(dirname(deps.store.path), seat)
       await mkdir(seat, { recursive: true })
+      // 方案 B（2026-11-17 用户选定）：能连上 Super Agent 就把活交给它的 Worker，
+      // 任务台只留卡片与验收；连不上（没固定 token / 没挂那套组件）再走自己的执行会话。
+      const dispatched = await dispatchToSuperAgent({
+        title: target.title,
+        // Super Agent 的 Worker 没有 task_report，简报只给活和边界。
+        brief: [
+          target.content.trim(),
+          '',
+          `工作目录：${seat}`,
+          '允许清单 v0.1：只产 patch；不 push、不开 PR、不碰受保护分支、不跨仓库。',
+          '做完把结论与证据（分支、提交、验收命令输出）写清。',
+        ].join('\n'),
+        cwd: seat,
+      })
+      if (dispatched !== undefined && !dispatched.simulated) {
+        const workerTask = await mutateTask(taskId, (record) => {
+          record.status = 'in-progress'
+          record.directory = workdir
+          if (worktree !== undefined) record.worktreeBranch = worktree.branch
+          record.superAgentWorkerId = dispatched.workerId
+          record.autoRetries = 0
+        })
+        return { taskId: workerTask.id, sessionId: `superagent:${dispatched.workerId}`, status: workerTask.status }
+      }
       // 执行会话要能把结果写回卡片：优先用 task-exec 预设（组成里挂了 dsh-task-manager/tools）。
       // 该预设只在开发组成里声明过；生产组成还没加时退回 all —— 退回后任务照做，
       // 只是 `task_report` 不在工具面里，卡片得人工关单。
@@ -825,6 +850,22 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         const commits = project === undefined || branch === undefined
           ? ''
           : await git(project, ['rev-list', '--count', `HEAD..${branch}`]).catch(() => '')
+        // 没提交但工作区里躺着改动的文件，同样算"干出来了"（Worker 常常只写文件不提交）。
+        const dirty = task.directory === undefined
+          ? ''
+          : await git(task.directory, ['status', '--porcelain']).catch(() => '')
+        if (commits === '0' && dirty !== '' && project !== undefined && branch !== undefined) {
+          await mutateTask(task.id, (record) => {
+            record.status = 'waiting-check'
+            record.report = {
+              text: '自动对账：执行会话已结束，工作区里有未提交的改动，按已完成待验收。',
+              at: now(),
+              evidence: [`分支 ${branch}`, `改动 ${dirty.split('\n').length} 个文件`, `目录 ${task.directory ?? ''}`],
+            }
+          })
+          summary.toWaitingCheck += 1
+          continue
+        }
         if (commits !== '' && commits !== '0' && project !== undefined && branch !== undefined) {
           const head = await git(project, ['rev-parse', '--short', branch]).catch(() => '')
           await mutateTask(task.id, (record) => {

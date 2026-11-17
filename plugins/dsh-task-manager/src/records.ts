@@ -39,6 +39,8 @@ export interface TaskRecord {
   mergeCommit?: string
   /** 对账器自动重起执行会话的次数（上限 1，避免无限重试）。 */
   autoRetries?: number
+  /** 交给 Super Agent 执行时的 Worker id（方案 B：任务台派单 → Super Agent Worker）。 */
+  superAgentWorkerId?: string
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入。 */
   category?: string
