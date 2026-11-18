@@ -518,6 +518,61 @@ export function buildReportMarkdown(task: TaskRecord): string {
   return lines.join('\n')
 }
 
+/** Escape text for the HTML report page. */
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * 汇报的网页版：浏览器直接打开 `/report?taskId=…` 时用它，看到的是排版过的报告，
+ * 不是 Markdown 源文件。从任务数据直接生成，不引 Markdown 解析器。
+ */
+export function buildReportHtml(task: TaskRecord): string {
+  const meta: Array<[string, string]> = [
+    ['id', task.id],
+    ['状态', task.status],
+    ['目录', task.directory],
+    ['更新', new Date(task.updatedAt).toLocaleString('zh-CN')],
+  ]
+  if (task.worktreeBranch !== undefined && task.worktreeBranch !== '') meta.push(['分支', task.worktreeBranch])
+  const evidence = task.report?.evidence ?? []
+  return [
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">',
+    `<title>${escapeHtml(task.title)} · 执行汇报</title>`,
+    '<style>',
+    ':root{color-scheme:light dark}',
+    'body{margin:0;padding:28px;font:14px/1.65 system-ui,sans-serif;background:var(--bg,#fafafa);color:var(--fg,#1c1c1e)}',
+    '@media(prefers-color-scheme:dark){:root{--bg:#1c1c1e;--fg:#f2f2f7}}',
+    'main{max-width:820px;margin:0 auto}h1{font-size:20px;margin:0 0 16px}',
+    'h2{font-size:15px;margin:22px 0 6px;padding-top:14px;border-top:1px solid rgba(128,128,128,.25)}',
+    'dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12px;margin:0 0 8px}',
+    'dt{opacity:.65}dd{margin:0;overflow-wrap:anywhere}',
+    'p{margin:0;white-space:pre-wrap}code{font-size:12px;overflow-wrap:anywhere}',
+    'ul{padding-left:20px;margin:8px 0 0}.time{font-size:11px;opacity:.6;margin:0 0 6px}',
+    '</style></head><body><main>',
+    `<h1>${escapeHtml(task.title)}</h1>`,
+    '<dl>',
+    ...meta.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code></dd>`),
+    '</dl>',
+    '<h2>任务内容</h2>',
+    `<p>${escapeHtml(task.content)}</p>`,
+    '<h2>执行汇报</h2>',
+    task.report === undefined
+      ? '<p>（暂无汇报）</p>'
+      : [
+          `<p class="time">${escapeHtml(new Date(task.report.at).toLocaleString('zh-CN'))}</p>`,
+          `<p>${escapeHtml(task.report.text)}</p>`,
+          evidence.length === 0
+            ? ''
+            : `<ul>${evidence.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join('')}</ul>`,
+        ].join(''),
+    task.lastReply === undefined
+      ? ''
+      : `<h2>我的回复</h2><p class="time">${escapeHtml(new Date(task.lastReply.at).toLocaleString('zh-CN'))}</p><p>${escapeHtml(task.lastReply.text)}</p>`,
+    '</main></body></html>',
+  ].join('')
+}
+
 /** The nudge text delivered to the captain on nudge(taskId). */
 export function buildNudgeText(input: {
   task: Pick<TaskRecord, 'id' | 'title' | 'status'>

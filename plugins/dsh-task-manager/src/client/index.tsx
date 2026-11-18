@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, ReactElement } from 'react'
 
+
 /** Required services: the slot registry and the locale dictionaries. */
 export const inject = ['slots', 'locale'] as const
 
@@ -224,7 +225,16 @@ const dicts: Record<string, Record<string, string>> = {
     managedQuestion: 'Waiting for your answer',
     managedReplyHint: 'Your answer goes to the manager conversation, not to this panel.',
     managedNoQuestions: 'No pending question.',
-    executionReport: 'Execution report (.md)',
+    executionReport: 'Execution report',
+    reportSectionContent: 'Task',
+    reportSectionReport: 'Execution report',
+    reportSectionReply: 'My reply',
+    reportEmpty: '(no report yet)',
+    reportClose: 'Close',
+    reportCopy: 'Copy Markdown',
+    reportOpenTab: 'Open in tab',
+    reportCopied: 'Copied',
+    reportFailed: 'Could not load report: ',
     pendingQuestion: 'Waiting for your reply',
     replyPlaceholder: 'Type your answer here…',
     sendReply: 'Send reply',
@@ -320,7 +330,16 @@ const dicts: Record<string, Record<string, string>> = {
     managedQuestion: '等待你的答复',
     managedReplyHint: '答复会送进管理对话，不留在本面板。',
     managedNoQuestions: '当前没有待答问题。',
-    executionReport: '执行汇报（Markdown）',
+    executionReport: '执行汇报',
+    reportSectionContent: '任务内容',
+    reportSectionReport: '执行汇报',
+    reportSectionReply: '我的回复',
+    reportEmpty: '（暂无汇报）',
+    reportClose: '关闭',
+    reportCopy: '复制 Markdown',
+    reportOpenTab: '新标签打开',
+    reportCopied: '已复制',
+    reportFailed: '读取汇报失败：',
     pendingQuestion: '等待你的回复',
     replyPlaceholder: '在这里回复…',
     sendReply: '发送回复',
@@ -535,6 +554,19 @@ const CSS = `
 .dsh-taskm-overlay{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,black 45%,transparent)}
 .dsh-taskm-dialog{width:min(560px,calc(100vw - 48px));max-height:calc(100vh - 64px);overflow:auto;display:flex;flex-direction:column;gap:14px;padding:18px;border-radius:12px;background:var(--dsw-alias-bg-overlay);box-shadow:0 16px 48px rgba(0,0,0,.18);color:var(--dsw-alias-label-primary)}
 .dsh-taskm-dialog-title{font-size:16px;font-weight:700;margin:0;color:var(--dsw-alias-label-primary)}
+.dsh-taskm-report-dialog{width:min(860px,calc(100vw - 64px));max-height:calc(100vh - 80px);overflow:hidden}
+.dsh-taskm-report-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dsh-taskm-report-head .dsh-taskm-dialog-title{flex:1 1 240px;min-width:0}
+.dsh-taskm-report-actions{display:flex;align-items:center;gap:10px}
+.dsh-taskm-report-body{overflow:auto;min-height:0;padding-right:4px;font-size:13px;line-height:1.6}
+.dsh-taskm-report-meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0 0 14px;font-size:12px}
+.dsh-taskm-report-meta dt{color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-report-meta dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.dsh-taskm-report-section{margin:16px 0 6px;font-size:13px;font-weight:700;color:var(--dsw-alias-label-primary)}
+.dsh-taskm-report-time{margin:0 0 6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-report-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.dsh-taskm-report-evidence-list{margin:8px 0 0;padding-left:18px}
+.dsh-taskm-report-evidence-list code{font-size:12px;overflow-wrap:anywhere}
 .dsh-taskm-field{display:flex;flex-direction:column;gap:6px}
 .dsh-taskm-field-label{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 .dsh-taskm-input{width:100%;box-sizing:border-box;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
@@ -957,6 +989,7 @@ function AnswerBox(props: { task: Task; onAnswered: () => void }): ReactElement 
 
 function TaskLinks(props: { task: Task }): ReactElement {
   const conversationId = props.task.captainSessionId ?? props.task.conversations?.[0]?.id
+  const [reportOpen, setReportOpen] = useState(false)
   return (
     <div className="dsh-taskm-item-foot">
       <span className={`dsh-taskm-pill ${STATUS_CLASS[props.task.status]}`}>
@@ -967,14 +1000,84 @@ function TaskLinks(props: { task: Task }): ReactElement {
           {translate('openConversation')} · {shortSessionId(conversationId)}
         </button>
       ) : null}
-      <a
-        className="dsh-taskm-link"
-        href={`/plugins/dsh-task-manager/report?taskId=${encodeURIComponent(props.task.id)}`}
-        target="_blank"
-        rel="noreferrer"
-      >
+      <button type="button" className="dsh-taskm-link" onClick={() => setReportOpen(true)}>
         {translate('executionReport')}
-      </a>
+      </button>
+      {reportOpen ? <ReportDialog task={props.task} onClose={() => setReportOpen(false)} /> : null}
+    </div>
+  )
+}
+
+/** 执行汇报弹窗：按 Markdown 渲染（与会话里看 Markdown 文件一致），不再把源文件直接甩出来。 */
+function ReportDialog(props: { task: Task; onClose: () => void }): ReactElement {
+  const [copied, setCopied] = useState(false)
+  const rawUrl = `/plugins/dsh-task-manager/report?taskId=${encodeURIComponent(props.task.id)}`
+  const [copyError, setCopyError] = useState(false)
+
+  // 直接从卡片数据渲染，不再抓 Markdown 源文：内容是我们自己生成的，结构化渲染更省事也更好读。
+  const copy = (): void => {
+    void (async () => {
+      try {
+        const response = await fetch(rawUrl, { headers: { accept: 'text/markdown' } })
+        await navigator.clipboard?.writeText(await response.text())
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      } catch {
+        setCopyError(true)
+      }
+    })()
+  }
+
+  return (
+    <div className="dsh-taskm-overlay" role="dialog" aria-modal="true" onClick={props.onClose}>
+      <div className="dsh-taskm-dialog dsh-taskm-report-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="dsh-taskm-report-head">
+          <h2 className="dsh-taskm-dialog-title">{props.task.title}</h2>
+          <div className="dsh-taskm-report-actions">
+            <button type="button" className="dsh-taskm-link" onClick={copy}>
+              {translate(copied ? 'reportCopied' : 'reportCopy')}
+            </button>
+            <a className="dsh-taskm-link" href={rawUrl} target="_blank" rel="noreferrer">
+              {translate('reportOpenTab')}
+            </a>
+            <button type="button" className="dsh-taskm-link" onClick={props.onClose}>
+              {translate('reportClose')}
+            </button>
+          </div>
+        </div>
+        <div className="dsh-taskm-report-body">
+          {copyError ? <p className="dsh-taskm-error">{translate('reportFailed')}</p> : null}
+          <dl className="dsh-taskm-report-meta">
+            <dt>id</dt><dd><code>{props.task.id}</code></dd>
+            <dt>状态</dt><dd>{statusLabel(translate, props.task.status)}</dd>
+            <dt>目录</dt><dd><code>{props.task.directory}</code></dd>
+            {props.task.worktreeBranch === undefined ? null : (<><dt>分支</dt><dd><code>{props.task.worktreeBranch}</code></dd></>)}
+          </dl>
+          <h3 className="dsh-taskm-report-section">{translate('reportSectionContent')}</h3>
+          <p className="dsh-taskm-report-text">{props.task.content}</p>
+          <h3 className="dsh-taskm-report-section">{translate('reportSectionReport')}</h3>
+          {props.task.report === undefined ? (
+            <p className="dsh-taskm-hint">{translate('reportEmpty')}</p>
+          ) : (
+            <>
+              <p className="dsh-taskm-report-time">{new Date(props.task.report.at).toLocaleString()}</p>
+              <p className="dsh-taskm-report-text">{props.task.report.text}</p>
+              {props.task.report.evidence !== undefined && props.task.report.evidence.length > 0 ? (
+                <ul className="dsh-taskm-report-evidence-list">
+                  {props.task.report.evidence.map((item) => (<li key={item}><code>{item}</code></li>))}
+                </ul>
+              ) : null}
+            </>
+          )}
+          {props.task.lastReply === undefined ? null : (
+            <>
+              <h3 className="dsh-taskm-report-section">{translate('reportSectionReply')}</h3>
+              <p className="dsh-taskm-report-time">{new Date(props.task.lastReply.at).toLocaleString()}</p>
+              <p className="dsh-taskm-report-text">{props.task.lastReply.text}</p>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

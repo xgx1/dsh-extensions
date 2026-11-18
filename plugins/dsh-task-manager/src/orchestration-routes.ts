@@ -16,7 +16,7 @@
  * - `POST /report`   — human manual report supplement (no identity semantics).
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { OrchestratorError, type OrchestratorErrorCode, type Status, buildReportMarkdown } from './records.ts'
+import { OrchestratorError, type OrchestratorErrorCode, type Status, buildReportHtml, buildReportMarkdown } from './records.ts'
 import type { TaskManagerService } from './orchestrator.ts'
 import { readJsonBody } from './http.ts'
 
@@ -162,6 +162,13 @@ export function registerOrchestrationRoutes(
         if (task === undefined) {
           res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ error: `task ${taskId} not found`, code: 'TASK_NOT_FOUND' }))
+          return
+        }
+        // 浏览器直接打开这个链接时给排版好的网页；抓取（复制、脚本）仍拿 Markdown 源文。
+        const wantsHtml = String(req.headers.accept ?? '').includes('text/html')
+        if (wantsHtml) {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(buildReportHtml(task))
           return
         }
         res.writeHead(200, {
