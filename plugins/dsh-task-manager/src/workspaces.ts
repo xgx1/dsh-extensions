@@ -31,7 +31,16 @@ export async function seatSessions(
 ): Promise<void> {
   if (registry === undefined) return
   const ids = sessionIds.filter((id): id is string => typeof id === 'string' && id !== '')
-  if (ids.length === 0) return
+  // 没有会话也要建：会话创建时宿主会按 cwd 自动建工作区（标题 = 目录名，带 -<任务id> 后缀），
+  // 我们先建才能保住「项目 · 任务」这个标题。
+  if (ids.length === 0) {
+    try {
+      await registry.create(path, title)
+    } catch {
+      // 建不出来不影响任务：会话照跑。
+    }
+    return
+  }
   try {
     const workspace = await registry.create(path, title)
     for (const sessionId of ids) {

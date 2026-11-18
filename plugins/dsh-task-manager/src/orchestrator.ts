@@ -615,6 +615,9 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const seat = workdir
       // 新 worktree 不在 agent-configs 白名单里 → 先登记再建会话，否则执行会话零工具。
       await registerExecSeat(dirname(deps.store.path), seat)
+      // 抢在会话创建前建工作区：否则宿主按 cwd 自动建的那个会拿走标题（目录名带 -<任务id>）。
+      await seatSessions(deps.resolveRuntime().workspaces, seat,
+        `${(project ?? seat).split('/').filter(Boolean).pop() ?? seat} · ${target.title.slice(0, 24)}`, [])
       await mkdir(seat, { recursive: true })
       // 方案 B（2026-11-17 用户选定）：能连上 Super Agent 就把活交给它的 Worker，
       // 任务台只留卡片与验收；连不上（没固定 token / 没挂那套组件）再走自己的执行会话。
