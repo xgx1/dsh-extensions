@@ -598,10 +598,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     },
 
     async startExecution(taskId, options = {}) {
-      const create = createSessionOf(deps.resolveRuntime())
-      if (create === undefined) {
-        throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController cannot create sessions')
-      }
+      const runtime = deps.resolveRuntime()
       const existing = await deps.store.load()
       const target = existing.find((item) => item.id === taskId)
       if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} does not exist`)
@@ -616,9 +613,29 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       // 新 worktree 不在 agent-configs 白名单里 → 先登记再建会话，否则执行会话零工具。
       await registerExecSeat(dirname(deps.store.path), seat)
       // 抢在会话创建前建工作区：否则宿主按 cwd 自动建的那个会拿走标题（目录名带 -<任务id>）。
-      await seatSessions(deps.resolveRuntime().workspaces, seat,
+      await seatSessions(runtime.workspaces, seat,
         `${(project ?? seat).split('/').filter(Boolean).pop() ?? seat} · ${target.title.slice(0, 24)}`, [])
       await mkdir(seat, { recursive: true })
+      // 卡片记着哪个执行会话，就还是那个会话（2026-11-18 用户要求）：接着它跑，不新开。
+      // 会话被归档/删除、宿主拒绝恢复时，才落到下面的新建分支。
+      const recorded = target.captainSessionId ?? ''
+      if (recorded !== '') {
+        try {
+          await deliverHumanMessage(runtime, recorded, buildExecutionBrief({ task: target, project, workdir }))
+          const resumed = await mutateTask(taskId, (record) => {
+            record.status = 'in-progress'
+            record.directory = workdir
+            if (worktree !== undefined) record.worktreeBranch = worktree.branch
+          })
+          return { taskId, sessionId: recorded, status: resumed.status }
+        } catch {
+          // 会话没了 → 新建。
+        }
+      }
+      const create = createSessionOf(runtime)
+      if (create === undefined) {
+        throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController cannot create sessions')
+      }
       // 方案 B（2026-11-17 用户选定）：能连上 Super Agent 就把活交给它的 Worker，
       // 任务台只留卡片与验收；连不上（没固定 token / 没挂那套组件）再走自己的执行会话。
       const dispatched = await dispatchToSuperAgent({
@@ -832,6 +849,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const idleMs = options?.idleMs ?? 10 * 60_000
       const limit = options?.limit ?? 20
       const dshHome = dirname(dirname(deps.store.path))
+      const agents = deps.resolveRuntime().agents
       const tasks = await deps.store.load()
       const stale = tasks
         .filter((task) => task.status === 'in-progress')
@@ -844,7 +862,12 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
           continue
         }
         const activity = await sessionActivity(dshHome, task.captainSessionId)
-        if (activity !== undefined && now() - activity < idleMs) {
+        // 卡片记着的执行会话不在内存（宿主重启）= 没人接着干：别等 10 分钟空闲，立刻按证据处理，
+        // 由下面的自动重试把同一个会话唤醒。没有执行会话的卡（Super Agent 派单）仍按旧行为等待。
+        const recorded = task.captainSessionId ?? ''
+        const live = recorded === '' ? undefined : agents?.get(recorded)
+        const orphaned = recorded !== '' && agents !== undefined && live === undefined
+        if (!orphaned && activity !== undefined && now() - activity < idleMs) {
           summary.left += 1
           continue
         }

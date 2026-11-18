@@ -4,12 +4,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTaskManager } from '../src/orchestrator.ts'
 import { CaptainStore, ConsoleStore, TaskStore } from '../src/stores.ts'
-import { FakeAgents, FakeSubagents } from './fakes.ts'
+import { FakeAgent, FakeAgents, FakeSubagents } from './fakes.ts'
 
 async function rig() {
   const dir = await mkdtemp(join(tmpdir(), 'task-manager-manager-'))
@@ -159,6 +159,170 @@ describe('card questions and answers', () => {
       await expect(service.answerQuestion('task-1', questionId, '再来一次')).rejects.toThrow(/already answered/)
     } finally {
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+describe('execution session continuity', () => {
+  it('resumes the recorded execution session instead of starting a new one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-resume-'))
+    try {
+      const store = new TaskStore(dir)
+      const created: Array<{ sessionId?: string; agentPreset?: string }> = []
+      const agents = new FakeAgents()
+      const session = agents.add('session-old')
+      const service = createTaskManager({
+        store,
+        captains: new CaptainStore(dir),
+        consoleStore: new ConsoleStore(dir),
+        resolveRuntime: () => ({
+          subagents: new FakeSubagents(),
+          agents,
+          sessionController: {
+            create: async (request) => {
+              created.push(request)
+              return { sessionId: 'session-new' }
+            },
+            resolveAgent: async () => ({ agent: session }),
+          },
+        }),
+        now: () => 2_000,
+      })
+      await store.mutate((tasks) => {
+        tasks.push({
+          id: 'resume01',
+          title: '续跑示例',
+          content: '接着上次的活干',
+          status: 'problem',
+          runMode: 'cwd',
+          directory: '/tmp',
+          project: '/tmp',
+          captainSessionId: 'session-old',
+          dispatchRound: 1,
+          needsFinalReview: false,
+          createdAt: 1,
+          updatedAt: 1,
+        })
+      })
+      const result = await service.startExecution('resume01')
+      expect(result.sessionId).toBe('session-old')
+      expect(created).toHaveLength(0)
+      expect(session.lastFollowupText()).toContain('接着上次的活干')
+      const task = (await service.list()).find((item) => item.id === 'resume01')
+      expect(task?.status).toBe('in-progress')
+      expect(task?.captainSessionId).toBe('session-old')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('starts a fresh session only when the recorded one cannot be resumed', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-resume-gone-'))
+    try {
+      const store = new TaskStore(dir)
+      const created: Array<{ sessionId?: string; agentPreset?: string }> = []
+      const service = createTaskManager({
+        store,
+        captains: new CaptainStore(dir),
+        consoleStore: new ConsoleStore(dir),
+        resolveRuntime: () => ({
+          subagents: new FakeSubagents(),
+          agents: new FakeAgents(),
+          sessionController: {
+            create: async (request) => {
+              created.push(request)
+              return { sessionId: 'session-fresh' }
+            },
+            // 记着的会话恢复不了；新建出来的会话要能收简报。
+            resolveAgent: async (sessionId: string) =>
+              sessionId === 'session-fresh'
+                ? { agent: { followup: () => undefined } }
+                : { error: new Error('session was archived') },
+          },
+        }),
+        now: () => 2_000,
+      })
+      await store.mutate((tasks) => {
+        tasks.push({
+          id: 'resume02',
+          title: '会话没了',
+          content: '重新开工',
+          status: 'problem',
+          runMode: 'cwd',
+          directory: '/tmp',
+          project: '/tmp',
+          captainSessionId: 'session-gone',
+          dispatchRound: 1,
+          needsFinalReview: false,
+          createdAt: 1,
+          updatedAt: 1,
+        })
+      })
+      const result = await service.startExecution('resume02')
+      expect(created).toHaveLength(1)
+      expect(result.sessionId).toBe('session-fresh')
+      const task = (await service.list()).find((item) => item.id === 'resume02')
+      expect(task?.captainSessionId).toBe('session-fresh')
+      expect(task?.conversations?.map((item) => item.id)).toContain('session-fresh')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resumes the recorded session right after a restart instead of waiting out the idle window', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'task-manager-restart-'))
+    try {
+      // 会话日志目录刚写过（< 10 分钟），但宿主重启后会话对象不在内存。
+      await mkdir(join(home, 'sessions', 'bucket', 'session-old'), { recursive: true })
+      const store = new TaskStore(join(home, 'task-manager'))
+      const resumed = new FakeAgent()
+      const created: unknown[] = []
+      let resolves = 0
+      const service = createTaskManager({
+        store,
+        captains: new CaptainStore(join(home, 'task-manager')),
+        consoleStore: new ConsoleStore(join(home, 'task-manager')),
+        resolveRuntime: () => ({
+          subagents: new FakeSubagents(),
+          agents: new FakeAgents(),
+          sessionController: {
+            create: async (request) => {
+              created.push(request)
+              return { sessionId: 'session-new' }
+            },
+            resolveAgent: async () => {
+              resolves += 1
+              return { agent: resumed }
+            },
+          },
+        }),
+      })
+      await store.mutate((tasks) => {
+        tasks.push({
+          id: 'restart1',
+          title: '重启后续跑',
+          content: '继续把场景搭完',
+          status: 'in-progress',
+          runMode: 'cwd',
+          directory: '/tmp',
+          project: '/tmp',
+          captainSessionId: 'session-old',
+          dispatchRound: 1,
+          needsFinalReview: false,
+          createdAt: 1,
+          updatedAt: 1,
+        })
+      })
+      const summary = await service.reconcile()
+      expect(summary.retried).toBe(1)
+      expect(summary.left).toBe(0)
+      expect(created).toHaveLength(0)
+      expect(resolves).toBe(1)
+      expect(resumed.lastFollowupText()).toContain('继续把场景搭完')
+      const task = (await service.list()).find((item) => item.id === 'restart1')
+      expect(task?.status).toBe('in-progress')
+      expect(task?.captainSessionId).toBe('session-old')
+    } finally {
+      await rm(home, { recursive: true, force: true })
     }
   })
 })

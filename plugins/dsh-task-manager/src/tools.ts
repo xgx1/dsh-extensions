@@ -249,7 +249,8 @@ export function registerTaskTools(
   register(defineTool({
     name: 'task_start_execution',
     description:
-      '为这张任务卡起一个执行会话（项目目录里的普通会话），投开工简报并把卡片转 in-progress。' +
+      '为这张任务卡起执行会话（项目目录里的普通会话），投开工简报并把卡片转 in-progress。' +
+      '卡片已经记着执行会话时接着那个会话跑（不新开）；会话没了才新建。' +
       '允许清单 v0.1：只产 patch，不 push、不开 PR、不碰受保护分支、不跨仓库。',
     parameters: {
       taskId: { type: 'string', required: true, description: '任务 id。' },
@@ -267,7 +268,7 @@ export function registerTaskTools(
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `执行会话已起：${short(String(value.sessionId))}，卡片状态 ${value.status}。`,
+        text: `执行会话：${short(String(value.sessionId))}（已有就接着它跑），卡片状态 ${value.status}。`,
       }],
     },
     execute: async (args) => {

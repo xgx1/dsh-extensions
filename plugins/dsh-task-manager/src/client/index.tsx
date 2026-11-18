@@ -263,7 +263,8 @@ const dicts: Record<string, Record<string, string>> = {
     projectLabel: 'Project',
     managerSession: 'Project manager',
     startExecution: 'Start execution',
-    executionStarted: 'Execution session started.',
+    resumeExecution: 'Resume execution',
+    executionStarted: 'Execution session ready.',
     questions: 'Waiting for you',
     recommendation: 'Suggested',
     adoptRecommendation: 'Go with the suggestion',
@@ -370,7 +371,8 @@ const dicts: Record<string, Record<string, string>> = {
     projectLabel: '项目',
     managerSession: '项目管理器',
     startExecution: '起执行会话',
-    executionStarted: '执行会话已起。',
+    resumeExecution: '继续执行会话',
+    executionStarted: '执行会话已就绪。',
     questions: '等你拍板',
     recommendation: '建议',
     adoptRecommendation: '按建议继续',
@@ -1313,7 +1315,9 @@ function TaskDetail(props: {
         </div>
         <div className="dsh-taskm-footer">
           <button type="button" className="dsh-taskm-primary" disabled={saving} onClick={() => { void startExecution() }}>
-            {translate('startExecution')}
+            {task.captainSessionId !== undefined && task.captainSessionId !== ''
+              ? translate('resumeExecution')
+              : translate('startExecution')}
           </button>
           {notice !== null ? <span className="dsh-taskm-hint">{notice}</span> : null}
         </div>

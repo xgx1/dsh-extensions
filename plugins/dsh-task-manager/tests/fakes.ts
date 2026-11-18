@@ -23,6 +23,9 @@ export class FakeResponse {
 
 /** Fake IncomingMessage: a URL + method + pushable body over the event emitter. */
 export class FakeRequest extends EventEmitter {
+  /** 真实 IncomingMessage 总有 headers；路由里读 accept 之类不能踩空。 */
+  readonly headers: Record<string, string> = {}
+
   constructor(readonly url: string, readonly method: string = 'GET', private body = '') {
     super()
   }
