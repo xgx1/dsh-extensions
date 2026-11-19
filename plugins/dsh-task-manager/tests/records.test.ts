@@ -9,7 +9,13 @@ import { describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { normalizeTask } from '../src/records.ts'
+import {
+  type TaskRecord,
+  TEST_SKILLS,
+  applyTestDocForRound,
+  buildTestDocMarkdown,
+  normalizeTask,
+} from '../src/records.ts'
 import { TaskStore } from '../src/stores.ts'
 
 /** The two legacy records exactly as they sit in the production tasks.json. */
@@ -139,3 +145,68 @@ describe('TaskStore migration round-trip', () => {
     }
   })
 })
+
+describe('待测试：测试文档（2026-11-19）', () => {
+  const makeTask = (overrides: Record<string, unknown> = {}): TaskRecord => ({
+    id: 'task-1',
+    title: '把面板做完',
+    content: '点一下测试文档要能看到要测什么',
+    status: 'waiting-check',
+    runMode: 'cwd',
+    directory: '/repo',
+    dispatchRound: 1,
+    needsFinalReview: false,
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
+  } as TaskRecord)
+
+  it('生成的文档带齐强制技能、这一单要测什么与证据', () => {
+    const doc = buildTestDocMarkdown(makeTask({
+      report: { text: '改了卡片', at: 5, evidence: ['/repo/out.md'] },
+    }))
+    for (const skill of TEST_SKILLS) expect(doc).toContain(skill)
+    expect(doc).toContain('点一下测试文档要能看到要测什么') // 一、要测什么
+    expect(doc).toContain('/repo/out.md')                      // 证据
+    expect(doc).toContain('task_test_doc')                     // 交回通道
+    expect(doc).toContain('模拟点击桌面窗口')
+  })
+
+  it('已有比汇报更新的文档就不覆盖；汇报更新后重新生成', () => {
+    const fed = makeTask({
+      report: { text: '第一轮', at: 5 },
+      testDoc: { text: '## 正式测试文档', at: 9, origin: 'session' },
+    })
+    applyTestDocForRound(fed, 10)
+    expect(fed.testDoc).toEqual({ text: '## 正式测试文档', at: 9, origin: 'session' })
+
+    applyTestDocForRound(fed, 11) // 汇报没变 → 仍保留
+    expect(fed.testDoc?.text).toBe('## 正式测试文档')
+
+    fed.report = { text: '第二轮返工', at: 12 } // 重做后再报：旧文档过期
+    applyTestDocForRound(fed, 13)
+    expect(fed.testDoc?.origin).toBe('generated')
+    expect(fed.testDoc?.at).toBe(13)
+  })
+
+  it('normalizeTask 保留合法测试文档，丢掉畸形值', () => {
+    const kept = normalizeTask({
+      id: 'a', title: 't', content: 'c', status: 'waiting-check', runMode: 'cwd', directory: '/x',
+      dispatchRound: 0, needsFinalReview: false, createdAt: 1, updatedAt: 1,
+      testDoc: { text: '正式版', at: 7, origin: 'session' },
+      testStartedAt: 6,
+    })
+    expect(kept?.testDoc).toEqual({ text: '正式版', at: 7, origin: 'session' })
+    expect(kept?.testStartedAt).toBe(6)
+
+    const dropped = normalizeTask({
+      id: 'b', title: 't', content: 'c', status: 'waiting-check', runMode: 'cwd', directory: '/x',
+      dispatchRound: 0, needsFinalReview: false, createdAt: 1, updatedAt: 1,
+      testDoc: { text: '  ', at: 7 },
+      testStartedAt: -1 as unknown as number,
+    })
+    expect(dropped?.testDoc).toBeUndefined()
+    expect(dropped?.testStartedAt).toBeUndefined()
+  })
+})
+

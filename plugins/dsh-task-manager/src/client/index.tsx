@@ -75,6 +75,12 @@ interface TaskReport {
   at: number
   evidence?: string[]
 }
+/** 待测试环节的测试文档：插件先生成「要测什么」，执行会话测完换成正式版。 */
+interface TaskTestDoc {
+  text: string
+  at: number
+  origin: 'generated' | 'session'
+}
 interface Task {
   id: string
   title: string
@@ -92,6 +98,8 @@ interface Task {
   dispatchRound: number
   /** 最近一次队长回报（覆盖式）。 */
   report?: TaskReport
+  /** 测试文档（卡片「测试文档」窗口显示它）。 */
+  testDoc?: TaskTestDoc
   /** 需终审：队长的 done 回报被钳制为 waiting-check，等用户终审后经 set-status 关单。 */
   needsFinalReview: boolean
   /** 最近一次催办时间（epoch ms）。 */
@@ -235,6 +243,12 @@ const dicts: Record<string, Record<string, string>> = {
     reportOpenTab: 'Open in tab',
     reportCopied: 'Copied',
     reportFailed: 'Could not load report: ',
+    testDoc: 'Test document',
+    testDocCopy: 'Copy',
+    testDocCopied: 'Copied',
+    testDocClose: 'Close',
+    testDocHint: 'Generated from the test skills when the card entered “Waiting for check”; the execution session replaces it after testing.',
+    testDocEmpty: 'No test document yet — it appears when the task enters “Waiting for check”.',
     pendingQuestion: 'Waiting for your reply',
     replyPlaceholder: 'Type your answer here…',
     sendReply: 'Send reply',
@@ -341,6 +355,12 @@ const dicts: Record<string, Record<string, string>> = {
     reportOpenTab: '新标签打开',
     reportCopied: '已复制',
     reportFailed: '读取汇报失败：',
+    testDoc: '测试文档',
+    testDocCopy: '复制',
+    testDocCopied: '已复制',
+    testDocClose: '关闭',
+    testDocHint: '进入待测试时按测试技能自动生成「要测什么」；执行会话测完会换成正式测试文档。',
+    testDocEmpty: '还没有测试文档——卡片进入「待测试」时生成。',
     pendingQuestion: '等待你的回复',
     replyPlaceholder: '在这里回复…',
     sendReply: '发送回复',
@@ -992,6 +1012,7 @@ function AnswerBox(props: { task: Task; onAnswered: () => void }): ReactElement 
 function TaskLinks(props: { task: Task }): ReactElement {
   const conversationId = props.task.captainSessionId ?? props.task.conversations?.[0]?.id
   const [reportOpen, setReportOpen] = useState(false)
+  const [testDocOpen, setTestDocOpen] = useState(false)
   return (
     <div className="dsh-taskm-item-foot">
       <span className={`dsh-taskm-pill ${STATUS_CLASS[props.task.status]}`}>
@@ -1005,7 +1026,11 @@ function TaskLinks(props: { task: Task }): ReactElement {
       <button type="button" className="dsh-taskm-link" onClick={() => setReportOpen(true)}>
         {translate('executionReport')}
       </button>
+      <button type="button" className="dsh-taskm-link" onClick={() => setTestDocOpen(true)}>
+        {translate('testDoc')}
+      </button>
       {reportOpen ? <ReportDialog task={props.task} onClose={() => setReportOpen(false)} /> : null}
+      {testDocOpen ? <TestDocDialog task={props.task} onClose={() => setTestDocOpen(false)} /> : null}
     </div>
   )
 }
@@ -1076,6 +1101,52 @@ function ReportDialog(props: { task: Task; onClose: () => void }): ReactElement 
               <h3 className="dsh-taskm-report-section">{translate('reportSectionReply')}</h3>
               <p className="dsh-taskm-report-time">{new Date(props.task.lastReply.at).toLocaleString()}</p>
               <p className="dsh-taskm-report-text">{props.task.lastReply.text}</p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 测试文档弹窗：进入待测试时插件按测试技能生成「这一单要测什么」，
+ * 执行会话测完交回正式版后同一窗口显示正式文档。
+ */
+function TestDocDialog(props: { task: Task; onClose: () => void }): ReactElement {
+  const [copied, setCopied] = useState(false)
+  const doc = props.task.testDoc
+  const copy = (): void => {
+    if (doc === undefined) return
+    void navigator.clipboard?.writeText(doc.text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <div className="dsh-taskm-overlay" role="dialog" aria-modal="true" onClick={props.onClose}>
+      <div className="dsh-taskm-dialog dsh-taskm-report-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="dsh-taskm-report-head">
+          <h2 className="dsh-taskm-dialog-title">{props.task.title} · {translate('testDoc')}</h2>
+          <div className="dsh-taskm-report-actions">
+            {doc === undefined ? null : (
+              <button type="button" className="dsh-taskm-link" onClick={copy}>
+                {translate(copied ? 'testDocCopied' : 'testDocCopy')}
+              </button>
+            )}
+            <button type="button" className="dsh-taskm-link" onClick={props.onClose}>
+              {translate('testDocClose')}
+            </button>
+          </div>
+        </div>
+        <div className="dsh-taskm-report-body">
+          {doc === undefined ? (
+            <p className="dsh-taskm-hint">{translate('testDocEmpty')}</p>
+          ) : (
+            <>
+              <p className="dsh-taskm-report-time">{new Date(doc.at).toLocaleString()}</p>
+              <p className="dsh-taskm-report-text">{doc.text}</p>
+              <p className="dsh-taskm-hint">{translate('testDocHint')}</p>
             </>
           )}
         </div>

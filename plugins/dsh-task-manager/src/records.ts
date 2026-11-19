@@ -16,6 +16,17 @@ export type Status = (typeof STATUSES)[number]
 /** Run-location modes the create dialog offers. */
 export type RunMode = 'cwd' | 'new-worktree' | 'existing-worktree'
 
+/**
+ * 待测试环节强制加载的测试技能（名字必须和 ~/.dsh/bin/agent-configs.py 的 task-exec 一致，
+ * 否则执行会话看不见、简报里的「先加载」会落空）。
+ */
+export const TEST_SKILLS = [
+  'tdd-fanout',
+  'write-manual-test-doc',
+  'verification-before-completion',
+  'background-window-control',
+] as const
+
 /** One captain report written back through the restricted report path. */
 export interface TaskReport {
   /** Free-text report body from the captain (状态 + 进展 + 结论). */
@@ -24,6 +35,17 @@ export interface TaskReport {
   at: number
   /** Evidence paths/references backing the report (形式核验 input). */
   evidence?: string[]
+}
+
+/**
+ * 待测试环节的测试文档（卡片「测试文档」窗口显示的就是它）。
+ * 进入 waiting-check 时插件先按 TEST_SKILLS 生成「要测什么」，
+ * 执行会话测完经 task_test_doc 换成正式版（origin: 'session'）。
+ */
+export interface TaskTestDoc {
+  text: string
+  at: number
+  origin: 'generated' | 'session'
 }
 
 /** One persisted task record (orchestration fields added in M1). */
@@ -50,6 +72,10 @@ export interface TaskRecord {
   dispatchRound: number
   /** 最近一次队长回报（覆盖式：新回报替换旧回报）。 */
   report?: TaskReport
+  /** 测试文档（见 TaskTestDoc）。 */
+  testDoc?: TaskTestDoc
+  /** 测试轮发起时刻：一单只发一次测试简报，对账不会反复投。 */
+  testStartedAt?: number
   /** 需终审：true 时队长的 done 回报被钳制为 waiting-check，等用户终审后经 set-status 关单。 */
   needsFinalReview: boolean
   /** 最近一次催办时间（epoch ms）。 */
@@ -154,11 +180,13 @@ export function normalizeTask(raw: unknown): TaskRecord | null {
   const source = raw as Record<string, unknown>
   // Destructure the orchestration fields out so malformed values are REMOVED
   // (not merely overridden) — the spread keeps every legacy/unknown key.
-  const { category, captainSessionId, dispatchRound, needsFinalReview, lastNudgeAt, report, ...rest } = source
+  const { category, captainSessionId, dispatchRound, needsFinalReview, lastNudgeAt, report, testDoc, testStartedAt, ...rest } = source
   const validCategory = asOptionalString(category)
   const validSessionId = asOptionalString(captainSessionId)
   const validNudge = asOptionalEpoch(lastNudgeAt)
   const validReport = normalizeReport(report)
+  const validTestDoc = normalizeTestDoc(testDoc)
+  const validTestStartedAt = asOptionalEpoch(testStartedAt)
   return {
     ...rest,
     dispatchRound: asSafeCount(dispatchRound) ?? 0,
@@ -167,6 +195,8 @@ export function normalizeTask(raw: unknown): TaskRecord | null {
     ...(validSessionId === undefined ? {} : { captainSessionId: validSessionId }),
     ...(validNudge === undefined ? {} : { lastNudgeAt: validNudge }),
     ...(validReport === undefined ? {} : { report: validReport }),
+    ...(validTestDoc === undefined ? {} : { testDoc: validTestDoc }),
+    ...(validTestStartedAt === undefined ? {} : { testStartedAt: validTestStartedAt }),
   } as TaskRecord
 }
 
@@ -179,6 +209,16 @@ function normalizeReport(value: unknown): TaskReport | undefined {
   if (at === undefined) return undefined
   const evidence = normalizeEvidence(source['evidence'])
   return evidence === undefined ? { text: source['text'], at } : { text: source['text'], at, evidence }
+}
+
+/** Coerce a test-doc value into a well-typed TaskTestDoc, or undefined when absent/malformed. */
+function normalizeTestDoc(value: unknown): TaskTestDoc | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const source = value as Record<string, unknown>
+  if (typeof source['text'] !== 'string' || source['text'].trim() === '') return undefined
+  const at = asOptionalEpoch(source['at'])
+  if (at === undefined) return undefined
+  return { text: source['text'], at, origin: source['origin'] === 'session' ? 'session' : 'generated' }
 }
 
 /** Coerce evidence into a string array; accepts one string, arrays, else undefined. */
@@ -516,6 +556,101 @@ export function buildReportMarkdown(task: TaskRecord): string {
   }
   lines.push('')
   return lines.join('\n')
+}
+
+/** 强制技能清单，一行给测试文档与测试简报共用。 */
+function testSkillLine(): string {
+  return TEST_SKILLS.map((name) => '`' + name + '`').join('、')
+}
+
+/**
+ * 进入待测试时自动生成的测试文档：告诉人（和执行会话）这一单具体要测什么、怎么测、
+ * 交回哪里。执行会话测完用 task_test_doc 把它换成正式版（origin: 'session'）。
+ */
+export function buildTestDocMarkdown(task: TaskRecord): string {
+  const lines: string[] = [
+    `# ${task.title} · 测试文档`,
+    '',
+    `- 任务 id: \`${task.id}\``,
+    `- 状态: \`${task.status}\``,
+    `- 目录: \`${task.directory}\``,
+  ]
+  if (task.worktreeBranch !== undefined && task.worktreeBranch !== '') lines.push(`- 分支: \`${task.worktreeBranch}\``)
+  lines.push(
+    `- 生成: ${new Date(task.updatedAt).toISOString()}`,
+    '',
+    '_这是进入待测试时按技能模板自动生成的一份；执行会话测完会把它换成正式测试文档。_',
+    '',
+    '## 一、要测什么',
+    '',
+    task.content.trim(),
+    '',
+    '### 改动与证据（来自执行汇报）',
+    '',
+  )
+  const evidence = task.report?.evidence ?? []
+  if (task.report !== undefined) lines.push(task.report.text.trim(), '')
+  if (evidence.length === 0) lines.push('（汇报里没给证据：先看这个目录里的提交与 diff，别凭空写结论。）')
+  else for (const item of evidence) lines.push(`- \`${item}\``)
+  lines.push(
+    '',
+    '## 二、怎么测（两段都要做，缺一不算测完）',
+    '',
+    `强制技能（动手前先加载）：${testSkillLine()}`,
+    '',
+    '### 1. 写测试案例，再真跑一遍',
+    '',
+    '- `tdd-fanout` 会把测试类技能整套扇出，按项目栈挑写用例的那个，用例落进仓库的测试目录；',
+    '- 跑完把命令与输出贴进正式文档，不许只写「大概没问题」。',
+    '',
+    '### 2. 模拟点击桌面窗口',
+    '',
+    '- 按 `background-window-control` 的规矩，经 `ego_*` / `cua_driver_native__*` 在 agent 桌面的窗口里真点一遍主流程；',
+    '- 只点自己起的窗口，不抢人的前台焦点；',
+    '- 每一步「点了什么 → 看到什么」都要记下来，失败留下截图路径。',
+    '',
+    '## 三、收尾',
+    '',
+    '- `verification-before-completion` 核对：每个结论都有命令输出或截图撑着；',
+    '- 测完用 `task_test_doc({ taskId, text })` 把这份文档换成正式版：逐项写「用例 / 命令 / 结果」，以及「点了哪些窗口、看到什么」；',
+    `- 测试没过就用 \`task_report({ taskId: "${task.id}", status: "problem", text: "测试没过：…" })\` 说清卡在哪，别自己改状态。`,
+    '',
+  )
+  return lines.join('\n')
+}
+
+/** 投给执行会话的测试简报：强制技能 + 两段测试 + 交回正式文档。 */
+export function buildTestBrief(task: TaskRecord): string {
+  const evidence = task.report?.evidence ?? []
+  return [
+    `【进入待测试】${task.title}`,
+    `- taskId: ${task.id}`,
+    `- 目录: ${task.directory}`,
+    '- 卡片「测试文档」窗口已生成这一单要测什么，按它来。',
+    '',
+    '需求：',
+    task.content.trim(),
+    '',
+    `强制技能（第一步就加载）：${testSkillLine()}`,
+    '',
+    '必须做完这两段再收工：',
+    '1) 写测试案例并真跑一遍（`tdd-fanout` 扇出写用例的技能），把命令与输出留下；',
+    '2) 经 `ego_*` / `cua_driver_native__*` 模拟点击桌面窗口，把主流程点一遍（只点自己起的窗口，不抢前台焦点）。',
+    '',
+    `测完用 \`task_test_doc({ taskId: "${task.id}", text: "…" })\` 交回正式测试文档` +
+      '（逐项写用例 / 命令 / 结果，以及点了哪些窗口、看到什么）。',
+    evidence.length === 0 ? '汇报里没有证据：先看工作目录的提交与 diff。' : `证据：${evidence.join(' / ')}`,
+    '测试没过用 task_report(status: "problem") 说明卡在哪；不要自己改卡片状态。',
+  ].join('\n')
+}
+
+/**
+ * 进入待测试时把「要测什么」落到卡片上：已有一份比最近一次汇报还新的文档（多半是执行会话
+ * 测完写的正式版）就不覆盖，否则重新生成。
+ */
+export function applyTestDocForRound(task: TaskRecord, at: number): void {
+  if (task.testDoc !== undefined && task.testDoc.at >= (task.report?.at ?? 0)) return
+  task.testDoc = { text: buildTestDocMarkdown(task), at, origin: 'generated' }
 }
 
 /** Escape text for the HTML report page. */

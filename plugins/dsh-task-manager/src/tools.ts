@@ -584,4 +584,39 @@ export function registerTaskTools(
       }
     },
   }), 'task-manager: task_report tool')
+
+  register(defineTool({
+    name: 'task_test_doc',
+    description:
+      '交回测试文档：卡片进入待测试后，按测试简报做完两段测试（写用例真跑 + 模拟点桌面窗口），用它把正式测试文档写回卡片（卡片「测试文档」窗口看到的就是它）。只能写派发给自己的任务。',
+    parameters: {
+      taskId: { type: 'string', required: true, description: '任务 id（task_claim 可查）。' },
+      text: {
+        type: 'string',
+        required: true,
+        description: '测试文档正文（Markdown）：逐项写用例/命令/结果/结论，以及点了哪些窗口、看到什么。',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          at: { type: 'number', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `测试文档已写回卡片（${new Date(value.at).toLocaleString('zh-CN')}），任务 ${value.id}。`,
+      }],
+    },
+    execute: async (args, exec) => {
+      if (exec.agent?.id === undefined) {
+        throw new Error('task_test_doc requires an owning agent session')
+      }
+      const task = await service.setTestDoc(exec.agent.id, args.taskId, args.text)
+      return { id: task.id, at: task.testDoc?.at ?? Date.now() }
+    },
+  }), 'task-manager: task_test_doc tool')
 }

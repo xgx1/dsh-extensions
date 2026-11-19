@@ -436,3 +436,54 @@ describe('setStatus — 关门即落地', () => {
     }
   })
 })
+
+describe('待测试环节（测试文档 + 测试简报）', () => {
+  it('报 waiting-check 时生成测试文档，并把测试简报投给执行会话一次', async () => {
+    const t = await makeService()
+    try {
+      await t.seedTask('task-a')
+      const assigned = await t.service.assign('task-a', 'research', { managerSessionId: 'session-manager' })
+      const captain = t.agents.add(assigned.captainSessionId) // 执行会话 live
+      const reported = await t.service.report(
+        assigned.captainSessionId,
+        'task-a',
+        'waiting-check',
+        '做完了',
+        ['/repo/out.md'],
+      )
+      expect(reported.status).toBe('waiting-check')
+      // report() 返回的是回报那一刻的快照：测试文档与发起的时刻落在落盘状态上。
+      const stored = (await t.store.load()).find((item) => item.id === 'task-a')
+      expect(stored?.testDoc?.origin).toBe('generated')
+      expect(stored?.testDoc?.text).toContain('tdd-fanout')
+      expect(stored?.testDoc?.text).toContain('content of task-a')
+      expect(stored?.testStartedAt).toBe(1_000)
+      expect(captain.followups).toHaveLength(1)
+      expect(captain.lastFollowupText()).toContain('background-window-control')
+      // 停在待测试的会话又报一次 waiting-check：不是新一轮测试，不再投简报。
+      await t.service.report(assigned.captainSessionId, 'task-a', 'waiting-check', '测完补一句')
+      expect(captain.followups).toHaveLength(1)
+      // 再次显式转待测试同样不重复投。
+      await t.service.setStatus('task-a', 'waiting-check')
+      expect(captain.followups).toHaveLength(1)
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('setTestDoc 只认该任务的队长，并把文档换成正式版', async () => {
+    const t = await makeService()
+    try {
+      await t.seedTask('task-a')
+      const assigned = await t.service.assign('task-a', 'research', { managerSessionId: 'session-manager' })
+      await expect(
+        t.service.setTestDoc('session-imposter', 'task-a', '## 假文档'),
+      ).rejects.toBeInstanceOf(OrchestratorError)
+      const task = await t.service.setTestDoc(assigned.captainSessionId, 'task-a', '## 正式测试文档\n用例：…')
+      expect(task.testDoc).toEqual({ text: '## 正式测试文档\n用例：…', at: 1_000, origin: 'session' })
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})
+

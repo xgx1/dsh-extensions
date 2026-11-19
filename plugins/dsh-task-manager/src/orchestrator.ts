@@ -36,6 +36,7 @@ import {
   type TaskRecord,
   applyAnswerToTask,
   applyReportToTask,
+  applyTestDocForRound,
   buildCharterPersona,
   buildAnswerText,
   buildConsoleAssignment,
@@ -44,6 +45,7 @@ import {
   buildProjectBrief,
   buildNudgeText,
   buildReplyText,
+  buildTestBrief,
   createOutboundMessage,
 } from './records.ts'
 import { type ReplyRuntime } from './managed-reply.ts'
@@ -185,6 +187,11 @@ export interface TaskManagerService {
     text: string,
     evidence?: string[],
   ): Promise<TaskRecord>
+  /**
+   * 队长回填测试文档（进入待测试后，执行会话测完用 task_test_doc 调用）：
+   * sessionId 必须是该任务的 captainSessionId，与 report 同一条身份线。
+   */
+  setTestDoc(sessionId: string, taskId: string, text: string): Promise<TaskRecord>
   /** 人类 GUI 手动补录（无身份语义，ADR-0001 人类全权写）。 */
   applyReportHuman(
     taskId: string,
@@ -426,6 +433,25 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       target.updatedAt = now()
       return target
     })
+  }
+
+  /**
+   * 进入待测试（2026-11-19 用户要求）：先把「这一单要测什么」落到卡片的测试文档上，
+   * 再向执行会话投一次测试简报（强制测试技能 → 写用例真跑 → 模拟点桌面窗口 → 交回正式文档）。
+   * 简报只按「最近一次汇报之后是否投过」去重：重做后再报 waiting-check 会重新发起一轮。
+   */
+  const openTestRound = async (taskId: string): Promise<void> => {
+    const task = await mutateTask(taskId, (record) => { applyTestDocForRound(record, now()) })
+    const briefed = task.testStartedAt !== undefined && task.testStartedAt >= (task.report?.at ?? 0)
+    const sessionId = task.captainSessionId ?? ''
+    if (briefed || sessionId === '') return
+    try {
+      await deliverHumanMessage(deps.resolveRuntime(), sessionId, buildTestBrief(task))
+    } catch {
+      // 执行会话已经不在：文档仍在卡片上，等人接手或重起执行会话。
+      return
+    }
+    await mutateTask(taskId, (record) => { record.testStartedAt = now() })
   }
 
   const requireConsoleStore = (): ConsoleStore => {
@@ -711,18 +737,40 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       if (typeof text !== 'string' || text.trim() === '') {
         throw new OrchestratorError('INVALID_INPUT', 'report text is required')
       }
-      return deps.store.mutate((tasks) => {
-        const task = tasks.find((item) => item.id === taskId)
-        if (task === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+      let prior: Status | undefined
+      const task = await deps.store.mutate((tasks) => {
+        const target = tasks.find((item) => item.id === taskId)
+        if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
         // Mandatory identity line (ADR-0003): only the dispatched captain reports.
-        if (task.captainSessionId === undefined || task.captainSessionId !== sessionId) {
+        if (target.captainSessionId === undefined || target.captainSessionId !== sessionId) {
           throw new OrchestratorError(
             'NOT_CAPTAIN',
-            `session ${sessionId} is not the captain of task ${taskId} (dispatched to ${task.captainSessionId ?? 'nobody'})`,
+            `session ${sessionId} is not the captain of task ${taskId} (dispatched to ${target.captainSessionId ?? 'nobody'})`,
           )
         }
-        applyReportToTask(task, { status: validStatus, text, evidence, at: now() })
-        return task
+        prior = target.status
+        applyReportToTask(target, { status: validStatus, text, evidence, at: now() })
+        return target
+      })
+      // 只在「转入」待测试时发起测试轮：停在待测试的会话再报一次 waiting-check 不算新一轮。
+      if (task.status === 'waiting-check' && prior !== 'waiting-check') await openTestRound(task.id)
+      return task
+    },
+
+    async setTestDoc(sessionId, taskId, text) {
+      if (typeof sessionId !== 'string' || sessionId === '') {
+        throw new OrchestratorError('NOT_CAPTAIN', 'test doc requires a sessionId')
+      }
+      if (typeof text !== 'string' || text.trim() === '') {
+        throw new OrchestratorError('INVALID_INPUT', 'test doc text is required')
+      }
+      const found = (await deps.store.load()).find((item) => item.id === taskId)
+      if (found === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+      if (found.captainSessionId === undefined || found.captainSessionId !== sessionId) {
+        throw new OrchestratorError('NOT_CAPTAIN', `session ${sessionId} is not the captain of task ${taskId}`)
+      }
+      return mutateTask(taskId, (record) => {
+        record.testDoc = { text, at: now(), origin: 'session' }
       })
     },
 
@@ -731,12 +779,16 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       if (typeof report.text !== 'string' || report.text.trim() === '') {
         throw new OrchestratorError('INVALID_INPUT', 'report text is required')
       }
-      return deps.store.mutate((tasks) => {
-        const task = tasks.find((item) => item.id === taskId)
-        if (task === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
-        applyReportToTask(task, { status: validStatus, text: report.text, evidence: report.evidence, at: now() })
-        return task
+      let prior: Status | undefined
+      const task = await deps.store.mutate((tasks) => {
+        const target = tasks.find((item) => item.id === taskId)
+        if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+        prior = target.status
+        applyReportToTask(target, { status: validStatus, text: report.text, evidence: report.evidence, at: now() })
+        return target
       })
+      if (task.status === 'waiting-check' && prior !== 'waiting-check') await openTestRound(task.id)
+      return task
     },
 
     async listMine(sessionId) {
@@ -833,6 +885,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         if (merge?.commit !== undefined) target.mergeCommit = merge.commit
         return target
       })
+      if (task.status === 'waiting-check' && before?.status !== 'waiting-check') await openTestRound(task.id)
       return { ...task, ...(merge?.error === undefined ? {} : { mergeError: merge.error }) }
     },
 
@@ -858,6 +911,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       for (const task of stale) {
         if (task.report !== undefined) {
           await mutateTask(task.id, (record) => { record.status = 'waiting-check' })
+          await openTestRound(task.id)
           summary.toWaitingCheck += 1
           continue
         }
@@ -889,6 +943,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
               evidence: [`分支 ${branch}`, `改动 ${dirty.split('\n').length} 个文件`, `目录 ${task.directory ?? ''}`],
             }
           })
+          await openTestRound(task.id)
           summary.toWaitingCheck += 1
           continue
         }
@@ -902,6 +957,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
               evidence: [`分支 ${branch}（${commits} 个提交）`, `提交 ${head}`],
             }
           })
+          await openTestRound(task.id)
           summary.toWaitingCheck += 1
           continue
         }

@@ -43,7 +43,7 @@ DSH Web GUI 任务管理器（纯 profile-bundle 覆盖层，**零官方源码�
 
 ## 编排（M1，Manager 任务编排 v1）
 
-宿主半侧新增编排层：`taskManager` 服务（host 平面，供 M2 模型工具经 `ctx.get('taskManager')` 消费）+ `captains.json` 队长注册表 + 三条 HTTP 路由。会话形态遵循 ADR-0003：队长 = Manager 经 `ctx.subagents.startContinuable` 创建的 continuable 子会话，类别章程+任务简报走 per-child `persona`，工具面走 per-child `toolFilter`（deny 全部管理工具），全部 13 个工具行挂任务台预设。
+宿主半侧新增编排层：`taskManager` 服务（host 平面，供 M2 模型工具经 `ctx.get('taskManager')` 消费）+ `captains.json` 队长注册表 + 三条 HTTP 路由。会话形态遵循 ADR-0003：队长 = Manager 经 `ctx.subagents.startContinuable` 创建的 continuable 子会话，类别章程+任务简报走 per-child `persona`，工具面走 per-child `toolFilter`（deny 全部管理工具），全部 14 个工具行挂任务台预设。
 
 ### 状态映射表（R4，定死）
 
@@ -106,7 +106,7 @@ setStatus(taskId, status): Promise<TaskRecord>   // 显式改状态，不受终�
 list(filter?: { category?, status? }): Promise<TaskRecord[]>  // updatedAt 降序（M2）
 ```
 
-### 模型工具（M2，7 个，名字与 CAPTAIN_TOOL_FILTER 逐字绑定）
+### 模型工具（M2，8 个，名字与 CAPTAIN_TOOL_FILTER 逐字绑定）
 
 | 工具 | 面 | 语义 |
 |---|---|---|
@@ -117,10 +117,11 @@ list(filter?: { category?, status? }): Promise<TaskRecord[]>  // updatedAt 降�
 | `task_nudge` | 管理 | 催办：向队长会话投递催办文本并记 lastNudgeAt |
 | `task_claim` | 队长 | 领派发：列出 captainSessionId==本会话 的任务（工作队列） |
 | `task_report` | 队长 | 回报：状态+正文+证据路径；身份线 `exec.agent.id == captainSessionId`（服务层强制） |
+| `task_test_doc` | 队长 | 交回测试文档：进入待测试后把正式测试文档写回卡片（同一身份线） |
 
 前 5 个名字即 `MANAGEMENT_TOOL_NAMES`（orchestrator.ts 导出），队长子会话的 per-child `toolFilter` 按名 deny；改名必须两处同步，否则 `tools.restrict()` 报 unknown name。工具定义经真实 `defineTool`（`@deepseek-ai/dsh-tools` devDependency）注册，参数校验由注册表强制。
 
-注册点**只有**预设行（`dsh-task-manager/tools`）。host bundle 主入口不得注册这 7 个名字：bundle 的注册落在 tools 注册表的全局层，任何预设的会话都会继承，等于把管理工具发给所有会话（ADR-0004 禁止的双注册）。`tests/entry-split.test.ts` 固定这条边界——bundle `apply()` 后零工具注册、且根本不解析 `tools` 服务。
+注册点**只有**预设行（`dsh-task-manager/tools`）。host bundle 主入口不得注册这 8 个名字：bundle 的注册落在 tools 注册表的全局层，任何预设的会话都会继承，等于把管理工具发给所有会话（ADR-0004 禁止的双注册）。`tests/entry-split.test.ts` 固定这条边界——bundle `apply()` 后零工具注册、且根本不解析 `tools` 服务。
 
 ### 双入口挂载（ADR-0004）
 
