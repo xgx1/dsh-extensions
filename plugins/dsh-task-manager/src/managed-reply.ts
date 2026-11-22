@@ -34,6 +34,8 @@ export interface ReplyRuntime {
     resolveAgent(sessionId: string): Promise<{ agent?: ReplyTarget; error?: unknown }>
     /** 任务台的两层管理器用它在无宿主会话的情况下建 / 唤醒会话（ADR-0014）。 */
     create?(request: SessionCreateRequest): Promise<{ sessionId?: string }>
+    /** 设置面板的情形→模型覆盖（2026-11-22 用户要求）；宿主没有此面时跳过。 */
+    selectModel?(request: { sessionId: string; provider: string; model: string }): Promise<unknown>
   }
 }
 

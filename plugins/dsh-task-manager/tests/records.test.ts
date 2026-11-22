@@ -13,6 +13,7 @@ import {
   type TaskRecord,
   TEST_SKILLS,
   applyTestDocForRound,
+  buildConsoleAssignment,
   buildTestDocMarkdown,
   normalizeTask,
 } from '../src/records.ts'
@@ -210,3 +211,15 @@ describe('待测试：测试文档（2026-11-19）', () => {
   })
 })
 
+
+describe('buildConsoleAssignment — 工作区清单', () => {
+  it('有工作区时渲染路径与用途，并指示按用途匹配选 cwd', () => {
+    const text = buildConsoleAssignment('做个价格对比', undefined, [], [{ path: '/home/sx/projects/demo', purpose: '演示、demo' }])
+    expect(text).toContain('## 可用工作区（路径 — 用途关键词）')
+    expect(text).toContain('- /home/sx/projects/demo — 演示、demo')
+    expect(text).toContain('按正文与各工作区用途关键词的匹配度选 cwd')
+  })
+  it('没有工作区时不渲染空清单', () => {
+    expect(buildConsoleAssignment('做个对比')).not.toContain('## 可用工作区')
+  })
+})

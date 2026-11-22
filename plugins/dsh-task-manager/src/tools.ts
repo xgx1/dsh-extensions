@@ -15,7 +15,7 @@
  * registry-enforced.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { STATUSES, type Status } from './records.ts'
+import { STATUSES, SITUATIONS, type Status, type TaskSituation } from './records.ts'
 import { type TaskManagerService } from './orchestrator.ts'
 
 /** Minimal structural view of the tool execution context (agent is optional). */
@@ -326,6 +326,7 @@ export function registerTaskTools(
       title: { type: 'string', description: '标题；缺省取正文第一行前 60 字。' },
       directory: { type: 'string', description: '任务目录；缺省当前会话工作目录。' },
       needsFinalReview: { type: 'boolean', description: '是否需用户终审后才能关单；缺省 false。' },
+      situation: { type: 'string', description: '任务情形：simple（简单）/ complex（复杂）/ long-running（长时运行）。设置面板按情形选模型；缺省用宿主默认模型。' },
     },
     output: {
       schema: {
@@ -351,6 +352,7 @@ export function registerTaskTools(
         ...(args.title !== undefined ? { title: args.title } : {}),
         ...(args.directory !== undefined ? { directory: args.directory } : {}),
         ...(args.needsFinalReview !== undefined ? { needsFinalReview: args.needsFinalReview } : {}),
+        ...(typeof args.situation === 'string' && (SITUATIONS as readonly string[]).includes(args.situation) ? { situation: args.situation as TaskSituation } : {}),
       })
       return {
         id: task.id,

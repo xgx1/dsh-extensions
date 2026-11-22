@@ -15,7 +15,9 @@ import {
   type CaptainRecord,
   type CaptainRegistryData,
   type TaskRecord,
+  type TaskSettings,
   normalizeCaptainEntry,
+  normalizeSettings,
   normalizeTask,
 } from './records.ts'
 
@@ -201,6 +203,29 @@ export class CaptainStore extends JsonStore<CaptainRegistryData> {
   }
 
   protected serialize(state: CaptainRegistryData): string {
+    return JSON.stringify(state, null, 2)
+  }
+}
+
+/** 设置面板存储（settings.json）：允许的模型 + 情形→模型映射。 */
+export class SettingsStore extends JsonStore<TaskSettings> {
+  constructor(dir: string) {
+    super(dir, 'settings.json')
+  }
+
+  protected parse(raw: string): TaskSettings {
+    try {
+      return normalizeSettings(JSON.parse(raw))
+    } catch {
+      return { allowedModels: [], situationModels: {} }
+    }
+  }
+
+  protected empty(): TaskSettings {
+    return { allowedModels: [], situationModels: {} }
+  }
+
+  protected serialize(state: TaskSettings): string {
     return JSON.stringify(state, null, 2)
   }
 }

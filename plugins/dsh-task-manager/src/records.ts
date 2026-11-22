@@ -49,6 +49,41 @@ export interface TaskTestDoc {
 }
 
 /** One persisted task record (orchestration fields added in M1). */
+/** 任务情形（设置面板按它选模型）：简单 / 复杂 / 长时运行。 */
+export type TaskSituation = 'simple' | 'complex' | 'long-running'
+export const SITUATIONS: readonly TaskSituation[] = ['simple', 'complex', 'long-running']
+
+/** 设置面板（2026-11-22 用户要求）：允许使用的模型 + 各情形用哪个模型。 */
+export interface TaskSettings {
+  /** 允许任务管理使用的模型路由（`provider/model`）；空 = 不覆盖任何会话的模型。 */
+  allowedModels: string[]
+  /** 情形 → 模型路由（必须在 allowedModels 里）；缺省情形用宿主默认模型。 */
+  situationModels: Partial<Record<TaskSituation, string>>
+}
+
+/** 模型路由：provider 一段 + model 至少一段（model 可含斜杠），无空白。 */
+function asModelRoute(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const route = value.trim()
+  return /^[^/\s]+\/\S+$/.test(route) ? route : undefined
+}
+
+/** 校验并规范化设置正文：非法路由丢弃，情形模型必须在白名单内。 */
+export function normalizeSettings(raw: unknown): TaskSettings {
+  const source = (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) ? raw as Record<string, unknown> : {}
+  const allowedRaw = Array.isArray(source['allowedModels']) ? source['allowedModels'] : []
+  const allowedModels = [...new Set(allowedRaw.map(asModelRoute).filter((route): route is string => route !== undefined))]
+  const modelsRaw = (typeof source['situationModels'] === 'object' && source['situationModels'] !== null && !Array.isArray(source['situationModels']))
+    ? source['situationModels'] as Record<string, unknown>
+    : {}
+  const situationModels: Partial<Record<TaskSituation, string>> = {}
+  for (const situation of SITUATIONS) {
+    const route = asModelRoute(modelsRaw[situation])
+    if (route !== undefined && allowedModels.includes(route)) situationModels[situation] = route
+  }
+  return { allowedModels, situationModels }
+}
+
 export interface TaskRecord {
   id: string
   title: string
@@ -56,6 +91,8 @@ export interface TaskRecord {
   status: Status
   runMode: RunMode
   directory: string
+  /** 任务情形；缺省用宿主默认模型（设置面板按情形覆盖）。 */
+  situation?: TaskSituation
   worktreeBranch?: string
   /** 用户验收通过后把任务分支合回项目分支的提交 id（`setStatus(done)` 副作用）。 */
   mergeCommit?: string
@@ -166,6 +203,8 @@ export type OrchestratorErrorCode =
   | 'DELIVERY_UNAVAILABLE'
   /** startContinuable 建会话失败（已回滚注册表 sessionId）。→ 502 */
   | 'CREATION_FAILED'
+  /** 任务进行中：拒绝删除，先改状态（别丢下还在干活的执行会话）。→ 409 */
+  | 'TASK_IN_PROGRESS'
 
 /**
  * Normalize one raw tasks.json entry into a well-typed TaskRecord.
@@ -346,15 +385,16 @@ export function applyAnswerToTask(
   return target
 }
 
-/** 用户答复投给管理器的正文：带着问题原文，管理器不需要回头翻卡片。 */
-export function buildAnswerText(input: { task: Pick<TaskRecord, 'id' | 'title'>; question: TaskQuestion; answer: string }): string {
+/** 用户答复投给执行会话/管理器的正文：带着问题原文，接收方不需要回头翻卡片。 */
+export function buildAnswerText(input: { task: Pick<TaskRecord, 'id' | 'title'>; question: TaskQuestion; answer: string; adopted?: boolean }): string {
   return [
     `【任务台·答复】${input.task.title}（${input.task.id}）`,
     '',
     `- 问题: ${input.question.text}`,
     `- 用户答复: ${input.answer}`,
+    ...(input.adopted === true ? ['', '（用户一键采纳了推荐答案：按推荐口径继续推进。）'] : []),
     '',
-    '按这条答复继续推进；还有别的待办就继续落在卡片上。',
+    '按这条答复继续推进任务。',
   ].join('\n')
 }
 
@@ -363,7 +403,7 @@ export interface OutboundUserMessage {
   readonly id: string
   readonly role: 'user'
   readonly content: Array<{ type: 'text'; text: string }>
-  readonly source: { kind: 'plugin'; plugin: string }
+  readonly source: { kind: 'task-manager' }
 }
 
 /**
@@ -378,7 +418,8 @@ export function createOutboundMessage(content: string): OutboundUserMessage {
     id: randomUUID(),
     role: 'user' as const,
     content: [{ type: 'text' as const, text: content }],
-    source: { kind: 'plugin' as const, plugin: 'dsh-task-manager' },
+    // format v4 拒绝退役的 {kind:'plugin'} 包装：kind 直接署名生产者。
+    source: { kind: 'task-manager' as const },
   })
 }
 
@@ -432,18 +473,20 @@ export function buildDispatchBrief(input: {
  * 「指派任务」投给大管理器的正文（ADR-0014）：大管理器只做路由，不动手。
  * @param text - 用户粘贴的任务正文。
  * @param cwdHint - 当前工作区目录，作为判断项目归属的提示。
+ * @param workspaces - 可用工作区（路径 — 用途关键词），没有项目路径时按用途匹配选 cwd。
  */
-export function buildConsoleAssignment(text: string, cwdHint?: string, sources?: string[]): string {
+export function buildConsoleAssignment(text: string, cwdHint?: string, sources?: string[], workspaces?: Array<{ path: string; purpose: string }>): string {
   return [
     '【任务台·指派】用户把这件事交给你：',
     '',
     text.trim(),
     ...(cwdHint === undefined ? [] : ['', `- 项目路径（原样传给 task_dispatch_project 的 cwd，不要向上找仓库根）: ${cwdHint}`]),
     ...(sources === undefined || sources.length === 0 ? [] : [`- 本单订阅的触发器: ${sources.join(' / ')}（派单时原样传给 task_dispatch_project 的 sources）`]),
+    ...(workspaces === undefined || workspaces.length === 0 ? [] : ['', '## 可用工作区（路径 — 用途关键词）', ...workspaces.map((workspace) => `- ${workspace.path} — ${workspace.purpose}`)]),
     '',
     '你只做一件事：调用 task_dispatch_project 派给该项目的项目管理器。',
     '- 有「项目路径」就原样传 cwd，**不要改成上层目录**：host 会在那个目录建仓库与 worktree。',
-    '- 没有项目路径时，看正文里出现的绝对路径；还是没有就调 task_console_state 看已有哪些项目。',
+    '- 没有项目路径时，先按正文与各工作区用途关键词的匹配度选 cwd；匹配不上再看正文里的绝对路径，或调 task_console_state 看已有哪些项目。',
     '- 你没有 shell、没有文件读写，只能用 task_* 工具；不要输出工具格式的文本，直接发起工具调用。',
   ].join('\n')
 }

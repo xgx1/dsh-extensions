@@ -13,6 +13,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, ReactElement } from 'react'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 
 /** Required services: the slot registry and the locale dictionaries. */
@@ -88,6 +90,8 @@ interface Task {
   status: Status
   runMode: RunMode
   directory: string
+  /** 任务情形（设置面板按它选模型）。 */
+  situation?: string
   worktreeBranch?: string
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入（t8 契约）。 */
@@ -185,6 +189,25 @@ const dicts: Record<string, Record<string, string>> = {
     close: 'Close',
     create: 'Create',
     back: 'Back',
+    delete: 'Delete',
+    deleteConfirm: 'Delete this task? Only the task record is removed; linked sessions and worktrees are kept.',
+    answerNotDelivered: 'Answer recorded, but delivery to the execution session failed; use the reply box to reach it directly.',
+    directoryHint: 'Type a path, or pick one of the existing workspaces.',
+    settings: 'Settings',
+    settingsTitle: 'Model settings',
+    allowedModels: 'Allowed models',
+    allowedModelsHint: 'Only checked models can be assigned to task situations. None checked = host default everywhere.',
+    situationLabel: 'Task situation',
+    situationHint: 'When the settings panel maps this situation to a model, the execution session uses it; otherwise the host default.',
+    situationDefaultOption: 'Default (host model)',
+    situation_simple: 'Simple tasks',
+    situation_complex: 'Complex tasks',
+    'situation_long-running': 'Long-running tasks',
+    situationDefault: 'Host default (no override)',
+    save: 'Save',
+    settingsLoadError: 'Could not load settings.',
+    settingsSaveError: 'Could not save settings.',
+    noModels: 'No models available from the host.',
     title: 'Title',
     content: 'Content',
     autoTitle: 'Generate title',
@@ -297,6 +320,25 @@ const dicts: Record<string, Record<string, string>> = {
     close: '关闭',
     create: '创建',
     back: '返回',
+    delete: '删除',
+    deleteConfirm: '确定删除这个任务？只删任务记录，关联会话与 worktree 不受影响。',
+    answerNotDelivered: '答复已记录，但未能送达执行会话；可用回复框直接回复。',
+    directoryHint: '可直接输入路径，或从已有工作区中选择。',
+    settings: '设置',
+    settingsTitle: '模型设置',
+    allowedModels: '允许使用的模型',
+    allowedModelsHint: '只有勾选的模型能指派给任务情形；全不勾 = 一律用宿主默认模型。',
+    situationLabel: '任务情形',
+    situationHint: '设置面板给这种情形配了模型时，执行会话就用它；没配就用宿主默认。',
+    situationDefaultOption: '默认（宿主模型）',
+    situation_simple: '简单任务',
+    situation_complex: '复杂任务',
+    'situation_long-running': '长时运行任务',
+    situationDefault: '宿主默认（不覆盖）',
+    save: '保存',
+    settingsLoadError: '设置加载失败。',
+    settingsSaveError: '设置保存失败。',
+    noModels: '宿主没有可用模型。',
     title: '标题',
     content: '任务内容',
     autoTitle: '生成标题',
@@ -553,6 +595,7 @@ const CSS = `
 .dsh-taskm-textarea-sm{min-height:76px}
 
 .dsh-taskm-badge{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:11px;font-size:12px;line-height:1;white-space:nowrap;flex:none}
+.dsh-taskm-model-list{display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;padding:8px 10px;border:1px solid var(--dsw-alias-border-primary);border-radius:8px}
 .dsh-taskm-badge-muted{background:color-mix(in srgb,var(--dsw-alias-label-secondary) 16%,transparent);color:var(--dsw-alias-label-secondary)}
 .dsh-taskm-badge-active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-brand-primary)}
 .dsh-taskm-badge-wait{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
@@ -608,6 +651,20 @@ const CSS = `
 .dsh-taskm-primary{display:inline-flex;align-items:center;height:34px;padding:0 16px;border:none;border-radius:8px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);cursor:pointer;font:inherit;font-size:13px;font-weight:600}
 .dsh-taskm-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
 .dsh-taskm-primary:disabled{opacity:.55;cursor:not-allowed}
+.dsh-taskm-danger{display:inline-flex;align-items:center;height:34px;padding:0 16px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:transparent;color:var(--dsw-alias-state-error-primary);cursor:pointer;font:inherit;font-size:13px}
+.dsh-taskm-danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent)}
+.dsh-taskm-danger:disabled{opacity:.55;cursor:not-allowed}
+.dsh-taskm-markdown{font-size:13px;line-height:1.7;color:var(--dsw-alias-label-primary);overflow-wrap:anywhere}
+.dsh-taskm-markdown h1,.dsh-taskm-markdown h2,.dsh-taskm-markdown h3{margin:14px 0 6px;line-height:1.4}
+.dsh-taskm-markdown h1{font-size:16px}.dsh-taskm-markdown h2{font-size:14.5px}.dsh-taskm-markdown h3{font-size:13.5px}
+.dsh-taskm-markdown p{margin:6px 0}.dsh-taskm-markdown ul,.dsh-taskm-markdown ol{margin:6px 0;padding-left:22px}
+.dsh-taskm-markdown code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;background:var(--dsw-alias-bg-layer-2);padding:1px 4px;border-radius:4px}
+.dsh-taskm-markdown pre{background:var(--dsw-alias-bg-layer-2);padding:10px;border-radius:8px;overflow:auto}
+.dsh-taskm-markdown pre code{background:transparent;padding:0}
+.dsh-taskm-markdown table{border-collapse:collapse;margin:8px 0;font-size:12.5px}
+.dsh-taskm-markdown th,.dsh-taskm-markdown td{border:1px solid var(--dsw-alias-border-l2);padding:4px 8px}
+.dsh-taskm-markdown blockquote{margin:6px 0;padding-left:10px;border-left:3px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}
+.dsh-taskm-markdown a{color:var(--dsw-alias-brand-primary)}
 .dsh-taskm-secondary{display:inline-flex;align-items:center;height:34px;padding:0 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:13px}
 .dsh-taskm-secondary:hover{background:var(--dsw-alias-button-ghost-active-fill)}
 .dsh-taskm-hint{font-size:12px;color:var(--dsw-alias-label-secondary)}
@@ -676,6 +733,7 @@ function NewTaskDialog(props: {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [needsFinalReview, setNeedsFinalReview] = useState(false)
+  const [situation, setSituation] = useState('')
 
   const handleContent = (value: string): void => {
     setContent(value)
@@ -711,6 +769,7 @@ function NewTaskDialog(props: {
         worktreeBranch: branch,
         worktreePath,
         needsFinalReview,
+        ...(situation === '' ? {} : { situation }),
       }
       const created = await postJSON<Task>('/plugins/dsh-task-manager/create', payload)
       props.onCreated(created)
@@ -789,14 +848,32 @@ function NewTaskDialog(props: {
           ) : null}
         </div>
 
+        <div className="dsh-taskm-field">
+          <span className="dsh-taskm-field-label">{translate('situationLabel')}</span>
+          <select className="dsh-taskm-input" value={situation} onChange={(event) => setSituation(event.target.value)}>
+            <option value="">{translate('situationDefaultOption')}</option>
+            <option value="simple">{translate('situation_simple')}</option>
+            <option value="complex">{translate('situation_complex')}</option>
+            <option value="long-running">{translate('situation_long-running')}</option>
+          </select>
+          <span className="dsh-taskm-hint">{translate('situationHint')}</span>
+        </div>
+
         {runMode === 'cwd' ? (
           <div className="dsh-taskm-field">
             <span className="dsh-taskm-field-label">{translate('directory')}</span>
             <input
               className="dsh-taskm-input"
               value={directory}
+              list="dsh-taskm-workspace-paths"
               onChange={(event) => setDirectory(event.target.value)}
             />
+            <datalist id="dsh-taskm-workspace-paths">
+              {props.context.workspaces.map((workspace) => (
+                <option key={workspace.path} value={workspace.path}>{workspace.title}</option>
+              ))}
+            </datalist>
+            <span className="dsh-taskm-hint">{translate('directoryHint')}</span>
           </div>
         ) : null}
 
@@ -849,6 +926,87 @@ function NewTaskDialog(props: {
           </button>
           <button type="button" className="dsh-taskm-primary" disabled={saving} onClick={() => { void submit() }}>
             {translate('create')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 设置面板：允许任务管理使用的模型 + 各情形用哪个模型（2026-11-22 用户要求）。 */
+function SettingsDialog(props: { onClose: () => void }): ReactElement {
+  const [models, setModels] = useState<Array<{ route: string; name: string }>>([])
+  const [allowed, setAllowed] = useState<string[]>([])
+  const [situationModels, setSituationModels] = useState<Record<string, string>>({})
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    getJSON<{ settings: { allowedModels: string[]; situationModels: Record<string, string> }; models: Array<{ route: string; name: string }> }>('/plugins/dsh-task-manager/settings')
+      .then((data) => {
+        if (cancelled) return
+        setModels(data.models)
+        setAllowed(data.settings.allowedModels)
+        setSituationModels(data.settings.situationModels)
+        setLoaded(true)
+      })
+      .catch(() => { if (!cancelled) setError(translate('settingsLoadError')) })
+    return () => { cancelled = true }
+  }, [])
+  const toggle = (route: string): void => {
+    setAllowed((current) => current.includes(route) ? current.filter((item) => item !== route) : [...current, route])
+  }
+  const save = async (): Promise<void> => {
+    setSaving(true)
+    setError(null)
+    try {
+      await postJSON('/plugins/dsh-task-manager/settings', { allowedModels: allowed, situationModels })
+      props.onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : translate('settingsSaveError'))
+    } finally {
+      setSaving(false)
+    }
+  }
+  const situations = ['simple', 'complex', 'long-running'] as const
+  return (
+    <div className="dsh-taskm-overlay" role="dialog" aria-modal="true">
+      <div className="dsh-taskm-dialog">
+        <h2 className="dsh-taskm-dialog-title">{translate('settingsTitle')}</h2>
+        <div className="dsh-taskm-field">
+          <span className="dsh-taskm-field-label">{translate('allowedModels')}</span>
+          <span className="dsh-taskm-hint">{translate('allowedModelsHint')}</span>
+          <div className="dsh-taskm-model-list">
+            {models.map((model) => (
+              <label key={model.route} className="dsh-taskm-radio">
+                <input type="checkbox" checked={allowed.includes(model.route)} onChange={() => toggle(model.route)} />
+                {model.name} <span className="dsh-taskm-hint">{model.route}</span>
+              </label>
+            ))}
+            {models.length === 0 && loaded ? <span className="dsh-taskm-hint">{translate('noModels')}</span> : null}
+          </div>
+        </div>
+        {situations.map((situation) => (
+          <div key={situation} className="dsh-taskm-field">
+            <span className="dsh-taskm-field-label">{translate(`situation_${situation}`)}</span>
+            <select
+              className="dsh-taskm-input"
+              value={situationModels[situation] ?? ''}
+              onChange={(event) => setSituationModels((current) => ({ ...current, [situation]: event.target.value }))}
+            >
+              <option value="">{translate('situationDefault')}</option>
+              {allowed.map((route) => <option key={route} value={route}>{route}</option>)}
+            </select>
+          </div>
+        ))}
+        {error !== null ? <div className="dsh-taskm-error">{error}</div> : null}
+        <div className="dsh-taskm-footer">
+          <button type="button" className="dsh-taskm-secondary" onClick={props.onClose}>
+            {translate('close')}
+          </button>
+          <button type="button" className="dsh-taskm-primary" disabled={saving || !loaded} onClick={() => { void save() }}>
+            {translate('save')}
           </button>
         </div>
       </div>
@@ -950,12 +1108,13 @@ function AnswerBox(props: { task: Task; onAnswered: () => void }): ReactElement 
     setSending(true)
     setError(null)
     try {
-      await postJSON<Task>('/plugins/dsh-task-manager/answer', {
+      const result = await postJSON<{ task: Task; delivered: 'live' | 'resumed' | 'none' }>('/plugins/dsh-task-manager/answer', {
         taskId: props.task.id,
         questionId: question.id,
         text: value,
       })
       setText('')
+      if (result.delivered === 'none') setError(translate('answerNotDelivered'))
       props.onAnswered()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : translate('replyError'))
@@ -1109,6 +1268,11 @@ function ReportDialog(props: { task: Task; onClose: () => void }): ReactElement 
   )
 }
 
+/** 测试文档是执行会话交回的真 Markdown：marked 解析 + DOMPurify 消毒（与 GUI 文档预览同套路）。 */
+function renderMarkdown(text: string): string {
+  return DOMPurify.sanitize(marked.parse(text, { async: false, gfm: true, breaks: true }))
+}
+
 /**
  * 测试文档弹窗：进入待测试时插件按测试技能生成「这一单要测什么」，
  * 执行会话测完交回正式版后同一窗口显示正式文档。
@@ -1145,7 +1309,7 @@ function TestDocDialog(props: { task: Task; onClose: () => void }): ReactElement
           ) : (
             <>
               <p className="dsh-taskm-report-time">{new Date(doc.at).toLocaleString()}</p>
-              <p className="dsh-taskm-report-text">{doc.text}</p>
+              <div className="dsh-taskm-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.text) }} />
               <p className="dsh-taskm-hint">{translate('testDocHint')}</p>
             </>
           )}
@@ -1284,6 +1448,8 @@ function TaskDetail(props: {
   onBack: () => void
   onStatusChange: (next: Task) => void
   onReplied: () => void
+  /** 删除成功后：从列表移除并回到列表视图。 */
+  onDeleted: () => void
   /** Session viewing the panel: the live manager parent for cold-resume delivery. */
   sessionId?: string
 }): ReactElement {
@@ -1322,6 +1488,21 @@ function TaskDetail(props: {
     }
   }
 
+  /** 删除任务记录（宿主拒绝 in-progress；关联会话不受影响）。 */
+  const deleteTask = async (): Promise<void> => {
+    if (!window.confirm(translate('deleteConfirm'))) return
+    setSaving(true)
+    setError(null)
+    try {
+      await postJSON<{ taskId: string }>('/plugins/dsh-task-manager/delete', { id: task.id })
+      props.onDeleted()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : translate('createError'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const questions = task.questions ?? []
   const conversations = task.conversations ?? []
 
@@ -1335,6 +1516,7 @@ function TaskDetail(props: {
       </div>
       <div className="dsh-taskm-detail-title">{task.title}</div>
       <div className="dsh-taskm-detail-meta">
+        {task.situation !== undefined ? <span className="dsh-taskm-badge">{translate(`situation_${task.situation}`)}</span> : null}
         <span>{translate('status')}:</span>
         <select
           className="dsh-taskm-status-select"
@@ -1389,6 +1571,9 @@ function TaskDetail(props: {
             {task.captainSessionId !== undefined && task.captainSessionId !== ''
               ? translate('resumeExecution')
               : translate('startExecution')}
+          </button>
+          <button type="button" className="dsh-taskm-danger" disabled={saving} onClick={() => { void deleteTask() }}>
+            {translate('delete')}
           </button>
           {notice !== null ? <span className="dsh-taskm-hint">{notice}</span> : null}
         </div>
@@ -1648,6 +1833,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [context, setContext] = useState<ContextInfo | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState('')
   const [filter, setFilter] = useState<'all' | 'assigned' | 'questions' | 'next' | 'running'>('all')
   /** 「按项目」总览：每个任务台一行（项目路径 + 会话 + 各状态计数），点一行只看该项目。 */
@@ -1798,6 +1984,9 @@ function TaskView(props: { sessionId?: string }): ReactElement {
             ))}
           </select>
         ) : null}
+        <button type="button" className="dsh-taskm-secondary" onClick={() => setSettingsOpen(true)}>
+          {translate('settings')}
+        </button>
         <button type="button" className="dsh-taskm-main-create" onClick={() => setDialogOpen(true)}>
           {translate('newTask')}
         </button>
@@ -1902,6 +2091,11 @@ function TaskView(props: { sessionId?: string }): ReactElement {
               onStatusChange={onStatusChange}
               onReplied={() => { void refresh() }}
               sessionId={props.sessionId}
+              onDeleted={() => {
+                setTasks((previous) => previous.filter((item) => item.id !== selectedTask.id))
+                setSelectedTask(null)
+                setView('list')
+              }}
             />
           ) : null
         )}
@@ -1915,6 +2109,8 @@ function TaskView(props: { sessionId?: string }): ReactElement {
           onCreated={onCreated}
         />
       ) : null}
+
+      {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   )
 }
