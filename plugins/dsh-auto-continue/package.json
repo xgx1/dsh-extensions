@@ -1,0 +1,29 @@
+{
+  "name": "dsh-auto-continue",
+  "version": "0.1.0",
+  "description": "Automatically clicks the DSH web GUI turn-tail 'continue/branch' button after output-cap truncation so the model keeps writing until it finishes.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ]
+}
