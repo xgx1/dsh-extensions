@@ -7,6 +7,7 @@
 #      （上游把技能放在不同层级：skills/<名>/、skills/<分类>/<名>/、.agents/skills/<名>/、
 #        plugins/<插件>/skills/<名>/……所以按 SKILL.md 递归发现，而不是写死两级）
 #   2. <ps-tool>/.dsh/skills/<技能>/              ← 项目程序仓自带的技能（update-all 等）
+#      没有 ps-tool（非 Linux 生产机）时回落到 <jobs>/update-app/skills/<技能>/
 #   3. ~/projects/<项目>/.dsh/skills/<技能>/      ← 项目专用技能（各项目自己的仓）
 #
 # 目标：
@@ -45,6 +46,10 @@ PSTOOL="${PSTOOL_SKILLS_ROOT:-/mnt/Video2/ps-tool/.dsh/skills}"
 # 会一个都扫不到——脚本看着跑成功，项目技能却仍是运行时里的旧副本（静默漂移）。
 # pwd -P 解掉 junction；Linux 上等价于原路径，无副作用。
 PROJECTS_ROOT="$(cd "${HOME}/projects" 2>/dev/null && pwd -P || echo "${HOME}/projects")"
+# 源 2 的回落：update-all 的 CLI+技能 2026-11-17 才并进 ps-tool（只在 Linux 生产机上），
+# Windows 机上仍是独立仓 update-app。缺 ps-tool 时用它的 skills/ —— 不写死这个回落，
+# Windows 上就永远没有 /update-all（见 INSTALL §9）。
+UPDATE_APP="${UPDATE_APP_ROOT:-${PROJECTS_ROOT}/update-app}"
 
 dry_run=0 force=0 list_only=0
 for arg in "$@"; do
@@ -111,8 +116,14 @@ if [ -d "$DSH_EXT/skills" ]; then
     for d in "${skipped[@]}"; do echo "  ${d#"$DSH_EXT"/}" >&2; done
   fi
 fi
-# 源 2：ps-tool 仓自带技能（update-all 随它的 CLI，2026-11-17 从独立仓 update-app 并进 ps-tool）
-[ -d "$PSTOOL" ] && for sk in "$PSTOOL"/*/; do add_skill "$sk"; done
+# 源 2：ps-tool 仓自带技能（update-all 随它的 CLI，2026-11-17 从独立仓 update-app 并进 ps-tool）；
+# 本机没有 ps-tool 时回落到 update-app skills/（同样的 SKILL.md 约定）
+if [ -d "$PSTOOL" ]; then
+  for sk in "$PSTOOL"/*/; do add_skill "$sk"; done
+elif [ -d "$UPDATE_APP/skills" ]; then
+  echo "ps-tool 技能源不存在（$PSTOOL），回落到 $UPDATE_APP/skills" >&2
+  for sk in "$UPDATE_APP"/skills/*/; do add_skill "$sk"; done
+fi
 # 源 3：任意深度项目下的 .dsh/skills/<技能>
 #   同样递归而非单层：`~/projects/*/.dsh/skills/` 这种一层 glob 会漏掉
 #   `ps-tool/anim/.dsh/skills/`（4 个 anime 技能长期靠手工软链）与
