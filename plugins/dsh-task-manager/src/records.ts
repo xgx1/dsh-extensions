@@ -21,10 +21,8 @@ export type RunMode = 'cwd' | 'new-worktree' | 'existing-worktree'
  * 否则执行会话看不见、简报里的「先加载」会落空）。
  */
 export const TEST_SKILLS = [
-  'tdd-fanout',
   'write-manual-test-doc',
   'verification-before-completion',
-  'background-window-control',
 ] as const
 
 /** One captain report written back through the restricted report path. */
@@ -607,8 +605,8 @@ function testSkillLine(): string {
 }
 
 /**
- * 进入待测试时自动生成的测试文档：告诉人（和执行会话）这一单具体要测什么、怎么测、
- * 交回哪里。执行会话测完用 task_test_doc 把它换成正式版（origin: 'session'）。
+ * 进入待测试时自动生成的人工测试文档：告诉人（和执行会话）这一单具体要测什么、
+ * 怎么人工测、交回哪里。人工测完用 task_test_doc 把它换成正式版（origin: 'session'）。
  */
 export function buildTestDocMarkdown(task: TaskRecord): string {
   const lines: string[] = [
@@ -622,7 +620,7 @@ export function buildTestDocMarkdown(task: TaskRecord): string {
   lines.push(
     `- 生成: ${new Date(task.updatedAt).toISOString()}`,
     '',
-    '_这是进入待测试时按技能模板自动生成的一份；执行会话测完会把它换成正式测试文档。_',
+    '_这是进入待测试时按人工测试模板自动生成的一份；人工测完会把它换成正式测试文档。_',
     '',
     '## 一、要测什么',
     '',
@@ -637,25 +635,25 @@ export function buildTestDocMarkdown(task: TaskRecord): string {
   else for (const item of evidence) lines.push(`- \`${item}\``)
   lines.push(
     '',
-    '## 二、怎么测（两段都要做，缺一不算测完）',
+    '## 二、怎么测（人工测试，逐项做完）',
     '',
     `强制技能（动手前先加载）：${testSkillLine()}`,
     '',
-    '### 1. 写测试案例，再真跑一遍',
+    '### 1. 列出要测的功能与流程',
     '',
-    '- `tdd-fanout` 会把测试类技能整套扇出，按项目栈挑写用例的那个，用例落进仓库的测试目录；',
-    '- 跑完把命令与输出贴进正式文档，不许只写「大概没问题」。',
+    '- 结合「一、要测什么」里的需求与改动，把需要人工验证的功能点逐条列出来；',
+    '- 对每条写明：操作步骤、预期结果、在哪个页面/窗口操作。',
     '',
-    '### 2. 模拟点击桌面窗口',
+    '### 2. 按流程真操作一遍',
     '',
-    '- 按 `background-window-control` 的规矩，经 `ego_*` / `cua_driver_native__*` 在 agent 桌面的窗口里真点一遍主流程；',
-    '- 只点自己起的窗口，不抢人的前台焦点；',
-    '- 每一步「点了什么 → 看到什么」都要记下来，失败留下截图路径。',
+    '- 按 `write-manual-test-doc` 的模板，把每条功能点的人工测试用例写进正式文档；',
+    '- 逐条执行，记录「操作了什么 → 看到了什么 → 符不符合预期」；',
+    '- 失败的留下截图路径或报错输出。',
     '',
     '## 三、收尾',
     '',
     '- `verification-before-completion` 核对：每个结论都有命令输出或截图撑着；',
-    '- 测完用 `task_test_doc({ taskId, text })` 把这份文档换成正式版：逐项写「用例 / 命令 / 结果」，以及「点了哪些窗口、看到什么」；',
+    '- 测完用 `task_test_doc({ taskId, text })` 把这份文档换成正式版（人工测试文档）：逐项写「功能点 / 操作步骤 / 预期结果 / 实际结果 / 结论」；',
     `- 测试没过就用 \`task_report({ taskId: "${task.id}", status: "problem", text: "测试没过：…" })\` 说清卡在哪，别自己改状态。`,
     '',
   )
@@ -677,18 +675,18 @@ export function buildTestBrief(task: TaskRecord): string {
     `强制技能（第一步就加载）：${testSkillLine()}`,
     '',
     '必须做完这两段再收工：',
-    '1) 写测试案例并真跑一遍（`tdd-fanout` 扇出写用例的技能），把命令与输出留下；',
-    '2) 经 `ego_*` / `cua_driver_native__*` 模拟点击桌面窗口，把主流程点一遍（只点自己起的窗口，不抢前台焦点）。',
+    '1) 列出要测的功能与流程，写明操作步骤、预期结果、在哪个页面/窗口操作；',
+    '2) 按 `write-manual-test-doc` 模板，逐条执行人工测试，记录「操作了什么 → 看到了什么 → 符不符合预期」，失败的留下截图路径或报错输出。',
     '',
     `测完用 \`task_test_doc({ taskId: "${task.id}", text: "…" })\` 交回正式测试文档` +
-      '（逐项写用例 / 命令 / 结果，以及点了哪些窗口、看到什么）。',
+      '（逐项写功能点 / 操作步骤 / 预期结果 / 实际结果 / 结论，以及人工测试时看到的情况）。',
     evidence.length === 0 ? '汇报里没有证据：先看工作目录的提交与 diff。' : `证据：${evidence.join(' / ')}`,
     '测试没过用 task_report(status: "problem") 说明卡在哪；不要自己改卡片状态。',
   ].join('\n')
 }
 
 /**
- * 进入待测试时把「要测什么」落到卡片上：已有一份比最近一次汇报还新的文档（多半是执行会话
+ * 进入待测试时把「要测什么」落到卡片上：已有一份比最近一次汇报还新的文档（多半是人工
  * 测完写的正式版）就不覆盖，否则重新生成。
  */
 export function applyTestDocForRound(task: TaskRecord, at: number): void {

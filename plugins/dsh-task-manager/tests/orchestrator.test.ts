@@ -455,11 +455,11 @@ describe('待测试环节（测试文档 + 测试简报）', () => {
       // report() 返回的是回报那一刻的快照：测试文档与发起的时刻落在落盘状态上。
       const stored = (await t.store.load()).find((item) => item.id === 'task-a')
       expect(stored?.testDoc?.origin).toBe('generated')
-      expect(stored?.testDoc?.text).toContain('tdd-fanout')
+      expect(stored?.testDoc?.text).toContain('write-manual-test-doc')
       expect(stored?.testDoc?.text).toContain('content of task-a')
       expect(stored?.testStartedAt).toBe(1_000)
       expect(captain.followups).toHaveLength(1)
-      expect(captain.lastFollowupText()).toContain('background-window-control')
+      expect(captain.lastFollowupText()).toContain('write-manual-test-doc')
       // 停在待测试的会话又报一次 waiting-check：不是新一轮测试，不再投简报。
       await t.service.report(assigned.captainSessionId, 'task-a', 'waiting-check', '测完补一句')
       expect(captain.followups).toHaveLength(1)

@@ -590,13 +590,13 @@ export function registerTaskTools(
   register(defineTool({
     name: 'task_test_doc',
     description:
-      '交回测试文档：卡片进入待测试后，按测试简报做完两段测试（写用例真跑 + 模拟点桌面窗口），用它把正式测试文档写回卡片（卡片「测试文档」窗口看到的就是它）。只能写派发给自己的任务。',
+      '交回测试文档：卡片进入待测试后，按人工测试简报完成人工测试，用它把正式测试文档写回卡片（卡片「测试文档」窗口看到的就是它）。只能写派发给自己的任务。',
     parameters: {
       taskId: { type: 'string', required: true, description: '任务 id（task_claim 可查）。' },
       text: {
         type: 'string',
         required: true,
-        description: '测试文档正文（Markdown）：逐项写用例/命令/结果/结论，以及点了哪些窗口、看到什么。',
+        description: '测试文档正文（Markdown）：逐项写功能点/操作步骤/预期结果/实际结果/结论，以及人工测试时看到的情况。',
       },
     },
     output: {
