@@ -10,7 +10,7 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { classifyTasks, type TaskRow } from './tasks.ts'
-import { dismissDone, loadDone, reduceDone, saveDone, type DoneState } from './dismissals.ts'
+import { dismissDone, EMPTY_DONE, loadDone, reduceDone, saveDone, type DoneState } from './dismissals.ts'
 
 /** Read-only observable source of one snapshot. */
 export interface SnapshotSource<Value> {
@@ -191,15 +191,39 @@ export function TaskBar({ sessions }: { sessions: TaskBarSessions }) {
     (callback) => sessions.status.subscribe(callback),
     () => sessions.status.getSnapshot(),
   )
-  const [done, setDone] = useState<DoneState>(loadDone)
+  // Undefined until the host's stored state arrives: folding before it lands
+  // would overwrite the persisted set with the bar's empty one.
+  const [done, setDone] = useState<DoneState>()
+  const loaded = useRef(false)
+  useEffect(() => {
+    let alive = true
+    void loadDone().then(
+      (state) => { if (!alive) return; loaded.current = true; setDone(state) },
+      () => {
+        // The host route is missing (client half without its host half): the
+        // bar still classifies from the official snapshots, it only cannot
+        // remember which finished rows the user already closed.
+        if (!alive) return
+        loaded.current = true
+        setDone(EMPTY_DONE)
+      },
+    )
+    return () => { alive = false }
+  }, [])
   // Snapshot objects keep their identity between changes, so this folds once
   // per real change rather than once per render.
-  useEffect(() => { setDone(previous => reduceDone(previous, list, status)) }, [list, status])
-  useEffect(() => { saveDone(done) }, [done])
+  useEffect(() => {
+    setDone(previous => (previous === undefined ? previous : reduceDone(previous, list, status)))
+  }, [list, status])
+  useEffect(() => {
+    if (!loaded.current || done === undefined) return
+    // A failed write leaves the row on screen; the next change retries it.
+    saveDone(done).catch(() => {})
+  }, [done])
   const dismiss = useCallback((id: SessionId) => {
-    setDone(previous => dismissDone(previous, id))
+    setDone(previous => (previous === undefined ? previous : dismissDone(previous, id)))
   }, [])
-  const groups = classifyTasks(list, status, new Set(done.shown))
+  const groups = classifyTasks(list, status, new Set(done?.shown ?? []))
   const total = groups.done.length + groups.running.length + groups.waiting.length
   const container = useRef<HTMLDivElement>(null)
   const [collapsed, setCollapsed] = useState(false)
