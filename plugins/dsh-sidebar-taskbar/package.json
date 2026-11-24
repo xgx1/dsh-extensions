@@ -1,7 +1,7 @@
 {
   "name": "dsh-sidebar-taskbar",
-  "version": "0.4.1",
-  "description": "DSH web GUI sidebar task bar: main-conversation tasks only (subagent sessions ignored) — finished (green, manually dismissed), running (red), waiting-for-reply (amber) — listed above the workspace browser, click to jump; a pure profile-bundle overlay, zero dsh source changes",
+  "version": "0.5.0",
+  "description": "DSH web GUI sidebar task bar: main-conversation tasks only (subagent sessions ignored) — finished (green, closed only from the bar), running (red), waiting-for-reply (amber) — listed above the workspace browser, click to jump; finished state persisted host-side in Turso; a pure profile-bundle overlay, zero dsh source changes",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -32,6 +32,9 @@
   },
   "peerDependencies": {
     "react": "^18.2.0"
+  },
+  "dependencies": {
+    "@tursodatabase/database": "^0.8.4"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",

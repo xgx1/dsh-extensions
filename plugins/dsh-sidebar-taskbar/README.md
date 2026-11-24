@@ -8,7 +8,7 @@ DSH Web GUI 侧边栏会话任务栏（纯 profile-bundle 覆盖层，**零官�
   - **等待回复**：会话名 + 🟡 琥珀点，点击跳转
 - 状态实时变化（运行中→结束自动移动分组）；侧边栏折叠为窄条时任务栏自动隐藏
 - **只列主会话，忽略子 agent 会话**：判定用官方同一个 `origin === 'subagent'` 标记（与工作区浏览器的过滤条件一致），子 agent 的运行/等待/结束状态归到父会话那一行
-- 数据复用官方两个只读源：`sessions.list`（标题与更新顺序）与 `uiSession.sessionStatus`（`running` / `pendingInteraction` / `completionUnread`）。「运行结束」组另有一份本地确认态（localStorage），因为官方的 `completionUnread` 在会话成为主视图时就被清除——直接用它，点开会话的那一下就会把这一行点没
+- 数据复用官方两个只读源：`sessions.list`（标题与更新顺序）与 `uiSession.sessionStatus`（`running` / `pendingInteraction` / `completionUnread`）。「运行结束」组另有一份自己的确认态（宿主侧 Turso，见「持久化」），因为官方的 `completionUnread` 在会话成为主视图时就被清除——直接用它，点开会话的那一下就会把这一行点没
 
 ## 安装
 
@@ -24,7 +24,9 @@ systemctl --user restart dsh-web
 | `src/client/mount.tsx` | 等待官方 `[data-slot="sidebar.workspaces"]` 容器（MutationObserver），在它之前插入任务栏锚点并 `createRoot` 挂载（aionui-panel 同款 DOM 挂载先例） |
 | `src/client/TaskBar.tsx` | `useSyncExternalStore` 订阅官方 sessions 快照与统一 UI 状态快照；三组分类渲染；点击 `uiWorkspace.openSession(id)` 跳转；ResizeObserver 检测侧边栏折叠（宽度 < 100px 隐藏） |
 | `src/client/tasks.ts` | 纯函数分类：等待回复优先于运行中，运行中优先于绿色结束态；结束组按 `updatedAt` 最新在前，运行/等待组最旧在前；`origin === 'subagent'` 的会话三组全排除 |
-| `src/client/dismissals.ts` | 「运行结束」组的本地确认态：官方 `completionUnread` 上升时入列、点 ✕ 出列，另在会话重新运行或离开列表时出列；localStorage 持久化（键 `dsh-sidebar-taskbar/done-v1`） |
+| `src/client/dismissals.ts` | 「运行结束」组的确认态：官方 `completionUnread` 上升时入列、点 ✕ 出列，另在会话重新运行或离开列表时出列；持久化走宿主路由（`GET` / `PUT` 同一路径） |
+| `src/index.ts` | 宿主侧：把确认态存进 Turso，并提供 `/plugins/dsh-sidebar-taskbar/done` 路由（`GET` 读、`PUT` 写，写前校验 body） |
+| `src/store.ts` | Turso 存储：`<DSH_HOME>/taskbar.db` 的 `done` 表，一行一个会话（`shown` / `unread` 两个标志），每次写入整表替换 |
 
 ### 状态语义
 
@@ -51,11 +53,20 @@ systemctl --user restart dsh-web
 - **入列**：官方 `completionUnread` 由假变真（含页面刚加载时就已经为真的情况）。
 - **不出列**：官方旗标由真变假——那是用户在点行跳转、官方就此「已读」，行必须活过这一下。
 - **出列**：点该行的 ✕；会话重新开始运行（移入「运行中」组）；会话从列表消失。
-- 关闭态写 localStorage，刷新后依然关闭；同一会话再次结束会重新入列。
+- 关闭态由宿主持久化，刷新页面、换浏览器、重启 dsh-web 后依然关着；同一会话再次结束会重新入列。
 - 「运行中」「等待回复」两组没有 ✕：它们是实时状态，关掉下一秒就会因状态未变而重现。
+
+### 持久化（宿主侧 Turso）
+
+确认态不再放浏览器 localStorage，而是写进宿主侧 Turso 数据库（`@tursodatabase/database`，文件 `<DSH_HOME>/taskbar.db`，表 `done`）：
+
+- 页面加载时先 `GET` 拿到上一次的集合；拿到之前不折叠、也不回写——否则空集合会把库里已有的状态覆盖成空。
+- 之后集合每次变化都 `PUT` 整份状态，宿主在一个事务里整表替换，库里不会留下条目不认识的会话行。
+- 宿主路由没起来（例如插件更新后没重启 dsh-web）时，任务栏仍按官方快照分类显示，只是记不住已关掉的行。
 
 ## 变更记录
 
+- **0.5.0** — 「运行结束」的确认态从 localStorage 迁到宿主侧 Turso（`<DSH_HOME>/taskbar.db`）：新增宿主半（`src/index.ts` 路由 + `src/store.ts` 存储）与依赖 `@tursodatabase/database`，浏览器半改为 `GET`/`PUT` 同一路径。刷新页面、换浏览器、重启 dsh-web 之后结束组仍是上次关到的样子；关掉的行只有点 ✕、会话重新运行、或会话离开列表才会消失。**升级后要重启 dsh-web**（宿主半在启动时加载），只重建客户端 bundle 是不够的。
 - **0.4.1** — 适配 dsh 0.2.2-rc：`uiSession.sessionStatus` 从 ui-session 的普通字段变成独立 Cordis 子服务（由 `@deepseek-ai/dsh-client-ui-session-status` 提供），未在 `inject` 里声明就读取会抛 `cannot get property "uiSession.sessionStatus" without inject`。注入表补上 `uiSession.sessionStatus`，类型改从 `@deepseek-ai/dsh-client-ui-session-status` 取，`apply` 直接用 `ctx.uiSession.sessionStatus`（不再结构体强转）。
 - **0.4.0** — 忽略子 agent 会话。三组分类与结束组确认态都按官方 `origin === 'subagent'` 过滤，子 agent 的运行/等待/结束状态归到父会话行；旧确认态里已记录的子 agent 条目会被清掉。带 `parentId` 的非 subagent 会话（如 fork）不受影响。
 - **0.3.0** — 「运行结束」组改为手动关闭。原来该组直接读官方 `completionUnread`，点一下行（跳转到会话）官方就清除旗标、行随之消失；现在结束组由本地确认态驱动，点行只跳转、行仍在，只有点该行的 ✕ 才移除，关闭态刷新后依然有效。

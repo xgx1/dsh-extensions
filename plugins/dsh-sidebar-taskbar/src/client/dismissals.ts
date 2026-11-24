@@ -8,14 +8,15 @@
  * therefore keeps its own "still owed a look" set, seeded from the official
  * flag when a completion is first observed and pruned only by an explicit
  * dismissal, a session that starts running again, or a session leaving the
- * list.
+ * list. The host persists that set in its Turso database (`../store.ts`), so
+ * every browser and every host restart see the same finished rows.
  */
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session-status/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { isSubagentSession } from './tasks.ts'
 
-/** Finished-group state, JSON-shaped so it survives a reload. */
+/** Finished-group state, JSON-shaped so the host can store it. */
 export interface DoneState {
   /** Sessions shown in the finished group until closed. */
   readonly shown: readonly SessionId[]
@@ -30,8 +31,8 @@ export interface DoneState {
 /** Nothing finished and nothing observed yet. */
 export const EMPTY_DONE: DoneState = { shown: [], unread: [] }
 
-/** Storage key for the finished-group state. */
-const STORAGE_KEY = 'dsh-sidebar-taskbar/done-v1'
+/** Same-origin route the host half serves the finished-group state on. */
+const DONE_PATH = '/plugins/dsh-sidebar-taskbar/done'
 
 /**
  * Fold one pair of live snapshots into the finished-group state.
@@ -123,29 +124,27 @@ function parseDone(value: unknown): DoneState | undefined {
 }
 
 /**
- * Read the finished-group state written by an earlier visit.
- * @returns the stored state, or the empty state when absent, unreadable, or malformed.
+ * Read the finished-group state the host stored for an earlier visit.
+ * @returns the stored state, or the empty state when the host holds none.
+ * @throws {Error} when the host route is unavailable or answers non-200.
  */
-export function loadDone(): DoneState {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (raw === null) return EMPTY_DONE
-    return parseDone(JSON.parse(raw) as unknown) ?? EMPTY_DONE
-  } catch {
-    // Storage disabled or holding foreign content: the bar still works, it
-    // just forgets which finished rows the user already closed.
-    return EMPTY_DONE
-  }
+export async function loadDone(): Promise<DoneState> {
+  const response = await fetch(DONE_PATH, { credentials: 'same-origin' })
+  if (!response.ok) throw new Error(`taskbar: done state read failed (${response.status})`)
+  return parseDone(await response.json() as unknown) ?? EMPTY_DONE
 }
 
 /**
- * Write the finished-group state for the next visit.
+ * Persist the finished-group state in the host database.
  * @param state - state to persist.
+ * @throws {Error} when the host route is unavailable or answers non-200.
  */
-export function saveDone(state: DoneState): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    // A full or disabled store must not break the bar.
-  }
+export async function saveDone(state: DoneState): Promise<void> {
+  const response = await fetch(DONE_PATH, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(state),
+  })
+  if (!response.ok) throw new Error(`taskbar: done state write failed (${response.status})`)
 }
