@@ -58,3 +58,27 @@
 [submodule "skills/ui-ux-pro-max-skill"]
 	path = skills/ui-ux-pro-max-skill
 	url = https://github.com/xgx1/ui-ux-pro-max-skill.git
+[submodule "skills/claude-code-game-studios"]
+	path = templates/claude-code-game-studios
+	url = https://github.com/xgx1/claude-code-game-studios.git
+[submodule "skills/awesome-gamedev-agent-skills"]
+	path = skills/awesome-gamedev-agent-skills
+	url = https://github.com/xgx1/awesome-gamedev-agent-skills.git
+[submodule "skills/blender-skills"]
+	path = skills/blender-skills
+	url = https://github.com/xgx1/blender-skills.git
+[submodule "skills/taste-skill"]
+	path = skills/taste-skill
+	url = https://github.com/xgx1/taste-skill.git
+[submodule "skills/gsap-skills"]
+	path = skills/gsap-skills
+	url = https://github.com/xgx1/gsap-skills.git
+[submodule "skills/reverse-skill"]
+	path = skills/reverse-skill
+	url = https://github.com/xgx1/reverse-skill.git
+[submodule "skills/impeccable"]
+	path = skills/impeccable
+	url = https://github.com/xgx1/impeccable.git
+[submodule "skills/skills"]
+	path = skills/skills
+	url = https://github.com/xgx1/skills.git

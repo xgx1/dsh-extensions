@@ -25,6 +25,8 @@
 #   ./install-skill.sh --dry-run   # 只看会做什么，不改动
 #   ./install-skill.sh --force     # 允许覆盖已存在的真实目录（先备份）
 #   ./install-skill.sh --list      # 列出受管技能及其来源，不安装
+#   DSH_HOME=~/.dsh-dev ./install-skill.sh       # 安装到 dev home
+#   DSH_SKILLS_ROOT=/tmp/skills ./install-skill.sh  # 写到指定暂存目录
 #
 # Windows（Git Bash）：
 #   MSYS=winsymlinks:nativestrict "C:\Program Files\Git\bin\bash.exe" -lc \
@@ -37,8 +39,9 @@
 set -euo pipefail
 
 DSH_EXT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS_ROOT="${HOME}/.dsh/skills"
-BACKUP_ROOT="${HOME}/.dsh/skill-backups"
+DSH_HOME="${DSH_HOME:-${HOME}/.dsh}"
+SKILLS_ROOT="${DSH_SKILLS_ROOT:-${DSH_HOME}/skills}"
+BACKUP_ROOT="${DSH_HOME}/skill-backups"
 PSTOOL="${PSTOOL_SKILLS_ROOT:-/mnt/Video2/ps-tool/.dsh/skills}"
 # PROJECTS_ROOT 必须是**物理路径**：Windows 上 ~/projects 是指向 ~/Project 的 junction，
 # MSYS 的 find 把 junction 当成符号链接、默认不跟随，于是源 3「项目专用技能」
@@ -90,8 +93,8 @@ skill_name() {
 # 源 1：dsh-extensions/skills/<分组>/**/SKILL.md
 #   不限深度（上游层级不一：skills/<名>/、skills/<分类>/<名>/、.agents/skills/<名>/、
 #   plugins/<插件>/skills/<名>/……深处还有更深的结构，硬编码层数会静默漏技能）。
-#   排序按「路径深度优先」：同一技能被多份副本携带时（上游常给多个 harness 各放一份）
-#   取最浅的那份，故 canonical 目录（skills/、.agents/skills/）优先于 .openclaw/skills/ 之类的分发副本。
+#   排序按「路径深度优先，同深度优先 .dsh」：同一技能被多份副本携带时取 canonical 目录，
+#   上游专门提供 DSH 适配时优先于 .agent/.claude 等通用分发副本。
 #   排除测试/示例噪音，且**把跳过的列出来**（静默跳过是过去的教训）。
 if [ -d "$DSH_EXT/skills" ]; then
   declare -a skipped=()
@@ -104,7 +107,8 @@ if [ -d "$DSH_EXT/skills" ]; then
   done < <(
     find "$DSH_EXT/skills" -mindepth 2 -type f -name SKILL.md \
       -not -path '*/.git/*' -not -path '*/node_modules/*' \
-      -printf '%d\t%p\n' | sort -k1,1n -k2,2 | cut -f2-
+      -printf '%d\t%p\n' | awk -F '\t' '{print $1 "\t" ($2 ~ "/\\.dsh/" ? 0 : 1) "\t" $2}' \
+      | sort -k1,1n -k2,2n -k3,3 | cut -f3-
   )
   if [ "${#skipped[@]}" -gt 0 ]; then
     echo "跳过（测试/示例噪音，共 ${#skipped[@]} 个）：" >&2
