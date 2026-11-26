@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@tursodatabase/database':
+        specifier: ^0.8.4
+        version: 0.8.4
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: link:../../../deepseek-harness/vendor/cordis
@@ -314,6 +318,34 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@tursodatabase/database-common@0.8.4':
+    resolution: {integrity: sha512-7GguqHmnZjnEzflnstsyT9boWOEi3huyeFusBS/xHnQ6OV1kYyA6ONamL9Xqsz9qQlNO9WaMmtxMiYvMiLoqeA==}
+
+  '@tursodatabase/database-darwin-arm64@0.8.4':
+    resolution: {integrity: sha512-9gD8DH/pH/ZXcwoDC95K9aPPAWIdGJk+RLTIiXLNLsi8MLJey0xQemqUKqEYuhm8VNy4+g67z9vmVb5YZCHHwA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@tursodatabase/database-linux-arm64-gnu@0.8.4':
+    resolution: {integrity: sha512-iUMQUzwbRDCfG3A9XJWC/MuGOQwhn6bZ+2koQ5LjQJltHqLeXsDn09/3pDaFczDmfSfjQW6Ab2QpQ5q4aG0MCQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tursodatabase/database-linux-x64-gnu@0.8.4':
+    resolution: {integrity: sha512-gGaS21vusrbJ3Aw6ZcgPrmE7LgHPjJibh2n3JHgmLTmNVq0enfbtNqmlm5X20Dw3OvTHR5WPd6blGvk9gpvorw==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tursodatabase/database-win32-x64-msvc@0.8.4':
+    resolution: {integrity: sha512-85lyfmrtrberCfILhTTIME4VzjCNkLWZFMm9bYZKp1w7S2bwJ/Vl4UwXuhl7+vRVIJix1i7bn4wjBJ8k6sl82A==}
+    cpu: [x64]
+    os: [win32]
+
+  '@tursodatabase/database@0.8.4':
+    resolution: {integrity: sha512-jPkAsBhJg0pT4t/t/GARCQ2J+8/+I0znOpyM3BmwLIBR+u1dPYSBNetJdoQW+6sVULQsuYpEkjEU9SGQBwyz5g==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -973,6 +1005,29 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@tursodatabase/database-common@0.8.4': {}
+
+  '@tursodatabase/database-darwin-arm64@0.8.4':
+    optional: true
+
+  '@tursodatabase/database-linux-arm64-gnu@0.8.4':
+    optional: true
+
+  '@tursodatabase/database-linux-x64-gnu@0.8.4':
+    optional: true
+
+  '@tursodatabase/database-win32-x64-msvc@0.8.4':
+    optional: true
+
+  '@tursodatabase/database@0.8.4':
+    dependencies:
+      '@tursodatabase/database-common': 0.8.4
+    optionalDependencies:
+      '@tursodatabase/database-darwin-arm64': 0.8.4
+      '@tursodatabase/database-linux-arm64-gnu': 0.8.4
+      '@tursodatabase/database-linux-x64-gnu': 0.8.4
+      '@tursodatabase/database-win32-x64-msvc': 0.8.4
 
   '@tybys/wasm-util@0.10.3':
     dependencies:

@@ -3,7 +3,7 @@
  *
  * Single source of truth for the persisted task/orchestration shapes shared by
  * the host service, the HTTP routes, the model tools (M2), and the GUI (M4).
- * Old `tasks.json` records predate the orchestration fields; loading must
+ * Old `tasks.json` records (imported once into the database) predate the orchestration fields; loading must
  * tolerate them by filling defaults at read time (never throwing, never
  * dropping the legacy keys).
  */
@@ -96,12 +96,10 @@ export interface TaskRecord {
   mergeCommit?: string
   /** 对账器自动重起执行会话的次数（上限 1，避免无限重试）。 */
   autoRetries?: number
-  /** 交给 Super Agent 执行时的 Worker id（方案 B：任务台派单 → Super Agent Worker）。 */
-  superAgentWorkerId?: string
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入。 */
   category?: string
-  /** 派发到的队长会话 id；与 captains.json 中该类别的 sessionId 一致。 */
+  /** 派发到的队长会话 id；与 `captains` 文档中该类别的 sessionId 一致。 */
   captainSessionId?: string
   /** 派发轮次：0 = 从未派发；每次成功 assign +1（含同单重派）。 */
   dispatchRound: number
@@ -159,7 +157,7 @@ export interface ConversationSummary {
   origin?: string
 }
 
-/** One captain registry entry persisted in `captains.json`. */
+/** One captain registry entry persisted in the `captains` document. */
 export interface CaptainRecord {
   /** 类别章程全文（类别差异的唯一载体，ADR-0002）。 */
   charter: string
@@ -171,7 +169,7 @@ export interface CaptainRecord {
   lastDispatchAt?: number
 }
 
-/** captains.json on-disk shape: category → record. */
+/** `captains` document shape: category → record. */
 export type CaptainRegistryData = Record<string, CaptainRecord>
 
 /** Orchestrator error carrying a stable code the routes map to HTTP statuses. */
@@ -205,7 +203,7 @@ export type OrchestratorErrorCode =
   | 'TASK_IN_PROGRESS'
 
 /**
- * Normalize one raw tasks.json entry into a well-typed TaskRecord.
+ * Normalize one raw legacy task entry into a well-typed TaskRecord.
  *
  * Migration tolerance: legacy records keep every original key (spread first);
  * missing orchestration fields get defaults (`dispatchRound` 0,
@@ -279,7 +277,7 @@ function asSafeCount(value: unknown): number | undefined {
 }
 
 /**
- * Normalize one raw captains.json entry. Unknown keys survive the spread;
+ * Normalize one raw captain entry. Unknown keys survive the spread;
  * charter defaults to '' and createdAt defaults to first-seen time.
  */
 export function normalizeCaptainEntry(raw: unknown): CaptainRecord | null {

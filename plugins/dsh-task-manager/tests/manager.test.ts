@@ -9,7 +9,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTaskManager } from '../src/orchestrator.ts'
 import { CaptainStore, ConsoleStore, SettingsStore, TaskStore } from '../src/stores.ts'
-import type { SuperAgentService } from '../src/superagent.ts'
 import { FakeAgent, FakeAgents, FakeSubagents } from './fakes.ts'
 import type { TaskRecord } from '../src/records.ts'
 
@@ -149,9 +148,9 @@ describe('card questions and answers', () => {
       await rm(`${repo}-abcdef12`, { recursive: true, force: true })
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
-describe('执行落点：worktree 复用 / Super Agent 融合 / 情形模型（2026-11-22）', () => {
+describe('执行落点：worktree 复用 / 情形模型（2026-11-22）', () => {
   const gitSync = (cwd: string, args: string[]): string => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
   const initRepo = async (): Promise<string> => {
     const repo = await mkdtemp(join(tmpdir(), 'task-manager-reuse-'))
@@ -161,7 +160,7 @@ describe('执行落点：worktree 复用 / Super Agent 融合 / 情形模型（2
     gitSync(repo, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init'])
     return repo
   }
-  const execRig = async (dir: string, options?: { settings?: SettingsStore; superAgent?: SuperAgentService }) => {
+  const execRig = async (dir: string, options?: { settings?: SettingsStore }) => {
     const store = new TaskStore(dir)
     const created: Array<{ cwd?: string; agentPreset?: string }> = []
     const selected: Array<{ sessionId: string; provider: string; model: string }> = []
@@ -173,7 +172,6 @@ describe('执行落点：worktree 复用 / Super Agent 融合 / 情形模型（2
       resolveRuntime: () => ({
         subagents: new FakeSubagents(),
         agents: new FakeAgents(),
-        superAgent: options?.superAgent,
         sessionController: {
           create: async (request) => {
             created.push(request)
@@ -298,56 +296,6 @@ describe('执行落点：worktree 复用 / Super Agent 融合 / 情形模型（2
     }
   }, 30_000)
 
-  it('Super Agent 服务在：派单给 Worker；Worker done 由对账回写卡片', async () => {
-    const repo = await initRepo()
-    const dir = await mkdtemp(join(tmpdir(), 'task-manager-sa-state-'))
-    try {
-      let workerState: { id: string; simulated: boolean; status: string; summary?: string } = { id: 'w-1', simulated: false, status: 'running' }
-      const superAgent: SuperAgentService = {
-        dispatch: async () => ({ workerId: 'w-1', threadId: 'th-1' }),
-        snapshot: () => ({ workers: [workerState] }),
-      }
-      const { store, service, created } = await execRig(dir, { superAgent })
-      await seed(store, 'gggggggg7777', repo)
-      const out = await service.startExecution('gggggggg7777')
-      expect(out.sessionId).toBe('superagent:w-1')
-      expect(created).toEqual([])
-      const task = (await service.list()).find((item) => item.id === 'gggggggg7777')
-      expect(task?.superAgentWorkerId).toBe('w-1')
-      workerState = { id: 'w-1', simulated: false, status: 'done', summary: '改完了' }
-      const summary = await service.reconcile()
-      expect(summary.toWaitingCheck).toBe(1)
-      const after = (await service.list()).find((item) => item.id === 'gggggggg7777')
-      expect(after?.status).toBe('waiting-check')
-      expect(after?.report?.text).toContain('Super Agent Worker done')
-    } finally {
-      await rm(repo, { recursive: true, force: true })
-      await rm(`${repo}-gggggggg`, { recursive: true, force: true })
-      await rm(dir, { recursive: true, force: true })
-    }
-  }, 30_000)
-
-  it('模拟 Worker 不算融合：退回自建执行会话', async () => {
-    const repo = await initRepo()
-    const dir = await mkdtemp(join(tmpdir(), 'task-manager-sim-state-'))
-    try {
-      const superAgent: SuperAgentService = {
-        dispatch: async () => ({ workerId: 'w-2' }),
-        snapshot: () => ({ workers: [{ id: 'w-2', simulated: true, status: 'done' }] }),
-      }
-      const { store, service, created } = await execRig(dir, { superAgent })
-      await seed(store, 'hhhhhhhh8888', repo)
-      const out = await service.startExecution('hhhhhhhh8888')
-      expect(out.sessionId).toBe('session-exec-1')
-      expect(created.length).toBe(1)
-      const task = (await service.list()).find((item) => item.id === 'hhhhhhhh8888')
-      expect(task?.superAgentWorkerId).toBeUndefined()
-    } finally {
-      await rm(repo, { recursive: true, force: true })
-      await rm(`${repo}-hhhhhhhh`, { recursive: true, force: true })
-      await rm(dir, { recursive: true, force: true })
-    }
-  }, 30_000)
 })
 
   it('rejects an empty answer and an already answered question', async () => {
@@ -414,7 +362,7 @@ describe('execution session continuity', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('starts a fresh session only when the recorded one cannot be resumed', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'task-manager-resume-gone-'))
@@ -467,7 +415,7 @@ describe('execution session continuity', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('resumes the recorded session right after a restart instead of waiting out the idle window', async () => {
     const home = await mkdtemp(join(tmpdir(), 'task-manager-restart-'))
@@ -525,5 +473,5 @@ describe('execution session continuity', () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 })

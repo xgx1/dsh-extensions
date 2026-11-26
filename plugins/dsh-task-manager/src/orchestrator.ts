@@ -74,7 +74,6 @@ import {
 import { deliverHumanMessage } from './managed-reply.ts'
 import { collectWorkspaceBriefs, seatSessions } from './workspaces.ts'
 import { registerExecSeat } from './seats.ts'
-import { dispatchToSuperAgent, type SuperAgentService } from './superagent.ts'
 
 /** Service key published on the host context (consumed by M2 tools via ctx.get). */
 export const TASK_MANAGER_SERVICE = 'taskManager'
@@ -142,8 +141,6 @@ export interface OrchestratorRuntime {
   sessionController?: ReplyRuntime['sessionController']
   /** 工作区注册表：把任务台起的会话挂进对应工作区（2026-11-17 用户要求，别再堆在「未分组」）。 */
   workspaces?: ReplyRuntime['workspaces']
-  /** super-agent 的进程内服务（2026-11-22 融合修复）：缺席时退回自建执行会话。 */
-  superAgent?: SuperAgentService
 }
 
 /** Dependencies of the taskManager service. */
@@ -154,7 +151,7 @@ export interface TaskManagerDeps {
   resolveRuntime: () => OrchestratorRuntime
   /** 两层管理器注册表（ADR-0014）；缺失时管理器相关方法明确报错。 */
   consoleStore?: ConsoleStore
-  /** 设置面板存储（settings.json）；缺失时不覆盖任何会话的模型。 */
+  /** 设置面板存储（`settings` 文档）；缺失时不覆盖任何会话的模型。 */
   settings?: SettingsStore
   /** 大管理器会话的工作目录（默认 stateDir 下的 console 目录）。 */
   consoleCwd?: string
@@ -752,33 +749,8 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       if (create === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController cannot create sessions')
       }
-      // 设置面板的情形→模型（2026-11-22 用户要求）：SA Worker 与自建会话都按它覆盖。
+      // 设置面板的情形→模型（2026-11-22 用户要求）：建执行会话时按它覆盖。
       const modelRoute = await situationModelRoute(target.situation)
-      // 方案 B（2026-11-17 用户选定）：能连上 Super Agent 就把活交给它的 Worker，
-      // 任务台只留卡片与验收；连不上（没挂那套组件）再走自己的执行会话。
-      const dispatched = await dispatchToSuperAgent(runtime.superAgent, {
-        title: target.title,
-        // Super Agent 的 Worker 没有 task_report，简报只给活和边界。
-        brief: [
-          target.content.trim(),
-          '',
-          `工作目录：${seat}`,
-          '允许清单 v0.1：只产 patch；不 push、不开 PR、不碰受保护分支、不跨仓库。',
-          '做完把结论与证据（分支、提交、验收命令输出）写清。',
-        ].join('\n'),
-        cwd: seat,
-        ...(modelRoute === undefined ? {} : { model: modelRoute }),
-      })
-      if (dispatched !== undefined) {
-        const workerTask = await mutateTask(taskId, (record) => {
-          record.status = 'in-progress'
-          record.directory = workdir
-          if (worktree !== undefined) record.worktreeBranch = worktree.branch
-          record.superAgentWorkerId = dispatched.workerId
-          record.autoRetries = 0
-        })
-        return { taskId: workerTask.id, sessionId: `superagent:${dispatched.workerId}`, status: workerTask.status }
-      }
       // 执行会话要能把结果写回卡片：优先用 task-exec 预设（组成里挂了 dsh-task-manager/tools）。
       // 该预设只在开发组成里声明过；生产组成还没加时退回 all —— 退回后任务照做，
       // 只是 `task_report` 不在工具面里，卡片得人工关单。
@@ -1042,22 +1014,6 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         .slice(0, limit)
       const summary = { examined: stale.length, toWaitingCheck: 0, retried: 0, blocked: 0, left: 0 }
       for (const task of stale) {
-        // Super Agent 派单的卡：Worker 状态就是事实源（它没有 task_report 回写）。
-        // 模拟 Worker 的 done 是假的，跳过——仍走下面的 git 证据对账。
-        const workerId = task.superAgentWorkerId
-        if (workerId !== undefined && workerId !== '') {
-          const worker = deps.resolveRuntime().superAgent?.snapshot()?.workers?.find((item) => item.id === workerId)
-          if (worker !== undefined && worker.simulated !== true && (worker.status === 'done' || worker.status === 'failed' || worker.status === 'cancelled')) {
-            const failed = worker.status !== 'done'
-            await mutateTask(task.id, (record) => {
-              record.status = failed ? 'problem' : 'waiting-check'
-              record.report = { text: `Super Agent Worker ${worker.status}：${worker.summary ?? ''}`.trim(), at: now() }
-            })
-            if (failed) summary.blocked += 1
-            else summary.toWaitingCheck += 1
-            continue
-          }
-        }
         if (task.report !== undefined) {
           await mutateTask(task.id, (record) => { record.status = 'waiting-check' })
           await openTestRound(task.id)
@@ -1066,7 +1022,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         }
         const activity = await sessionActivity(dshHome, task.captainSessionId)
         // 卡片记着的执行会话不在内存（宿主重启）= 没人接着干：别等 10 分钟空闲，立刻按证据处理，
-        // 由下面的自动重试把同一个会话唤醒。没有执行会话的卡（Super Agent 派单）仍按旧行为等待。
+        // 由下面的自动重试把同一个会话唤醒。没有执行会话的卡仍按旧行为等待。
         const recorded = task.captainSessionId ?? ''
         const live = recorded === '' ? undefined : agents?.get(recorded)
         const orphaned = recorded !== '' && agents !== undefined && live === undefined

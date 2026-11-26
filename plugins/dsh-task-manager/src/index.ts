@@ -6,9 +6,11 @@
  * the host web server (`/plugins/dsh-task-manager/*`) — the same channel the
  * `dsh-agent-teams` bundle uses for its web surface.
  *
- * - Tasks persist to a single JSON file under `~/.dsh/task-manager/tasks.json`
- *   (overridable via `config.stateDir`); the captain registry lives next to it
- *   in `captains.json`. Both stores serialize mutations and write atomically.
+ * - Every store persists into one Turso database `~/.dsh/task-manager/task-manager.db`
+ *   (overridable via `config.stateDir`), one JSON document row per kind (tasks /
+ *   captains / console / settings). Mutations serialize and run in one transaction;
+ *   the legacy per-state JSON files are imported once, then left in place as
+ *   migration evidence. `seats.json` stays a plain file (an external generator reads it).
  * - Orchestration (M1): the `taskManager` host service assigns tasks to
  *   category captains (continuable child sessions per ADR-0003), receives the
  *   restricted captain reports (identity-checked), and manages the registry.
@@ -33,7 +35,6 @@ import { CaptainStore, ConsoleStore, SettingsStore, TaskStore } from './stores.t
 import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
 import { registerOrchestrationRoutes, statusForError, type RouteRegistrar } from './orchestration-routes.ts'
 import { json, readJsonBody } from './http.ts'
-import type { SuperAgentService } from './superagent.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -47,7 +48,7 @@ interface WorktreeRow {
 
 /** Plugin configuration. */
 interface Config {
-  /** Directory holding `tasks.json`. Defaults to `<dsh home>/task-manager`. */
+  /** Directory holding `task-manager.db`. Defaults to `<dsh home>/task-manager`. */
   stateDir?: string
 }
 
@@ -244,7 +245,6 @@ export function apply(ctx: Context, config?: Config): void {
       agents: ctx.get('agents') as AgentsRegistryLike | undefined,
       sessionController: ctx.get('sessionController') as ReplyRuntime['sessionController'],
       workspaces: ctx.get('workspaceRegistry') as ReplyRuntime['workspaces'],
-      superAgent: ctx.get('superAgent') as SuperAgentService | undefined,
     }),
   })
   // Publish for the M2 model tools (consumed via ctx.get('taskManager')).

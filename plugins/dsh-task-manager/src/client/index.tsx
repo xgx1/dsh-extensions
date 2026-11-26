@@ -96,7 +96,7 @@ interface Task {
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入（t8 契约）。 */
   category?: string
-  /** 派发到的队长会话 id；与 captains.json 中该类别的 sessionId 一致（t8 契约）。 */
+  /** 派发到的队长会话 id；与 `captains` 文档中该类别的 sessionId 一致（t8 契约）。 */
   captainSessionId?: string
   /** 派发轮次：0 = 从未派发；每次成功 assign +1（含同单重派）。 */
   dispatchRound: number
@@ -289,10 +289,6 @@ const dicts: Record<string, Record<string, string>> = {
     filterRunning: 'Running',
     mergedCommit: 'Merged as',
     byProject: 'By project',
-    superAgentLabel: 'Super Agent',
-    superAgentMissing: 'Super Agent: not mounted in this instance',
-    superAgentPaused: 'paused',
-    superAgentDecisions: 'router decisions',
     projectTasks: 'tasks',
     noProjects: 'No project has a task yet.',
     questionsSection: 'Questions',
@@ -422,10 +418,6 @@ const dicts: Record<string, Record<string, string>> = {
     filterRunning: '运行中',
     mergedCommit: '已合入提交',
     byProject: '按项目',
-    superAgentLabel: 'Super Agent',
-    superAgentMissing: 'Super Agent：本实例没挂',
-    superAgentPaused: '已暂停',
-    superAgentDecisions: '次路由决策',
     projectTasks: '任务',
     noProjects: '还没有任何项目有任务。',
     questionsSection: '问题',
@@ -573,6 +565,10 @@ const CSS = `
 .dsh-taskm-main-title{font-size:16px;font-weight:650;line-height:22px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .dsh-taskm-main-body{flex:1;padding-top:14px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;overflow:auto}
 
+.dsh-taskm-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;box-sizing:border-box;padding:14px 16px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);color:inherit;cursor:pointer;text-align:left;font:inherit;transition:border-color .16s ease}
+.dsh-taskm-card:hover{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 38%,var(--dsw-alias-border-l1))}
+.dsh-taskm-card-title{font-size:14px;font-weight:600;line-height:20px;color:var(--dsw-alias-label-primary)}
+.dsh-taskm-card-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
 .dsh-taskm-empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:72px 16px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px}
 .dsh-taskm-empty-mark{display:grid;place-items:center;width:44px;height:44px;border:1px dashed var(--dsw-alias-border-l2);border-radius:14px;color:var(--dsw-alias-label-secondary)}
 .dsh-taskm-list{display:flex;flex-direction:column;gap:10px;width:100%}
@@ -648,6 +644,10 @@ const CSS = `
 .dsh-taskm-radios{display:flex;flex-direction:column;gap:6px}
 .dsh-taskm-error{padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary);font-size:13px}
 .dsh-taskm-footer{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
+.dsh-taskm-tabs{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
+.dsh-taskm-tab{display:inline-flex;align-items:center;height:28px;padding:0 11px;border:1px solid transparent;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12.5px;white-space:nowrap;transition:color .14s ease,background-color .14s ease}
+.dsh-taskm-tab:hover{color:var(--dsw-alias-label-primary)}
+.dsh-taskm-tab.is-on{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 42%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600}
 .dsh-taskm-primary{display:inline-flex;align-items:center;height:34px;padding:0 16px;border:none;border-radius:8px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground);cursor:pointer;font:inherit;font-size:13px;font-weight:600}
 .dsh-taskm-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
 .dsh-taskm-primary:disabled{opacity:.55;cursor:not-allowed}
@@ -1800,30 +1800,6 @@ function ProjectList(props: { tasks: Task[]; onPick: (project: string) => void }
   )
 }
 
-/** Super Agent 控制面里任务台看的那一小块（`GET /api/super-agent/state`）。 */
-interface SuperAgentState {
-  mode?: { accept?: string; paused?: boolean }
-  health?: { state?: string; note?: string }
-  workers?: { running?: number; total?: number }
-  router?: { decisions?: number }
-}
-
-/** 一行状态：有 Super Agent 就报它，没有就说明没装。 */
-function SuperAgentChip(props: { state: SuperAgentState | null }): ReactElement {
-  const state = props.state
-  if (state === null) return <span className="dsh-taskm-hint">{translate('superAgentMissing')}</span>
-  const health = state.health?.state ?? 'unknown'
-  const accept = state.mode?.accept ?? '?'
-  const paused = state.mode?.paused === true
-  return (
-    <span className="dsh-taskm-hint">
-      {translate('superAgentLabel')} · {health}
-      {paused ? ` · ${translate('superAgentPaused')}` : ` · ${accept}`}
-      {typeof state.router?.decisions === 'number' ? ` · ${state.router.decisions} ${translate('superAgentDecisions')}` : ''}
-    </span>
-  )
-}
-
 /** Task panel view: the center conversation area when the task view is active. */
 function TaskView(props: { sessionId?: string }): ReactElement {
   const [view, setView] = useState<'list' | 'detail'>('list')
@@ -1845,16 +1821,12 @@ function TaskView(props: { sessionId?: string }): ReactElement {
   const [assigning, setAssigning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  /** Super Agent 控制面（另一套组件）：只读状态，用来判断"执行侧在不在"。 */
-  const [superAgent, setSuperAgent] = useState<SuperAgentState | null>(null)
   const sessionIdRef = useRef(props.sessionId)
   sessionIdRef.current = props.sessionId
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
       setError(null)
-      const superState = getJSON<SuperAgentState>('/api/super-agent/state').catch(() => undefined)
-      void superState.then((value) => setSuperAgent(value ?? null))
       const [state, ctx, view] = await Promise.all([
         getJSON<{ tasks: Task[] }>('/plugins/dsh-task-manager/state'),
         getJSON<ContextInfo>(
@@ -2024,12 +1996,12 @@ function TaskView(props: { sessionId?: string }): ReactElement {
         ) : null}
 
         {view === 'list' ? (
-          <div className="dsh-taskm-footer" style={{ marginBottom: '10px' }}>
+          <div className="dsh-taskm-tabs">
             {([['all', 'filterAll'], ['assigned', 'filterAssigned'], ['questions', 'filterQuestions'], ['next', 'filterNext'], ['running', 'filterRunning']] as const).map(([key, label]) => (
               <button
                 key={key}
                 type="button"
-                className={filter === key ? 'dsh-taskm-primary' : 'dsh-taskm-main-create'}
+                className={filter === key ? 'dsh-taskm-tab is-on' : 'dsh-taskm-tab'}
                 onClick={() => setFilter(key)}
               >
                 {translate(label)}{counts[key] > 0 ? ` · ${counts[key]}` : ''}
@@ -2037,7 +2009,7 @@ function TaskView(props: { sessionId?: string }): ReactElement {
             ))}
             <button
               type="button"
-              className={byProject ? 'dsh-taskm-primary' : 'dsh-taskm-main-create'}
+              className={byProject ? 'dsh-taskm-tab is-on' : 'dsh-taskm-tab'}
               onClick={() => {
                 setByProject(!byProject)
                 if (byProject) setProjectFilter('')
@@ -2045,7 +2017,6 @@ function TaskView(props: { sessionId?: string }): ReactElement {
             >
               {translate('byProject')}
             </button>
-            <SuperAgentChip state={superAgent} />
             {todoCount > 0 ? <span className="dsh-taskm-hint">{translate('todoOnly')} · {todoCount}</span> : null}
           </div>
         ) : null}

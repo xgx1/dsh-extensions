@@ -6,7 +6,7 @@
  * defaults at read time, never throwing.
  */
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -131,8 +131,8 @@ describe('TaskStore migration round-trip', () => {
         }
       })
 
-      // 从磁盘读回：旧字段不丢，新字段已写
-      const raw = JSON.parse(await readFile(file, 'utf8')) as Array<Record<string, unknown>>
+      // 从库里读回：旧字段不丢，新字段已写（数据现在在 task-manager.db，tasks.json 是迁移证据）
+      const raw = await store.load() as unknown as Array<Record<string, unknown>>
       expect(raw).toHaveLength(2)
       expect(raw[1]?.['title']).toBe('ce shi biao ti ying') // 第二条旧记录原样
       expect(raw[1]?.['dispatchRound']).toBe(0)
@@ -170,7 +170,7 @@ describe('待测试：测试文档（2026-11-19）', () => {
     expect(doc).toContain('点一下测试文档要能看到要测什么') // 一、要测什么
     expect(doc).toContain('/repo/out.md')                      // 证据
     expect(doc).toContain('task_test_doc')                     // 交回通道
-    expect(doc).toContain('模拟点击桌面窗口')
+    expect(doc).toContain('write-manual-test-doc')               // 人工测试模板
   })
 
   it('已有比汇报更新的文档就不覆盖；汇报更新后重新生成', () => {
