@@ -210,10 +210,15 @@ export function TaskBar({ sessions }: { sessions: TaskBarSessions }) {
     )
     return () => { alive = false }
   }, [])
+  // Sessions seen running, so the falling edge that completes a main-view
+  // turn stays observable; reduceDone prunes it against the list it folds.
+  const seenRunning = useRef<Set<SessionId>>(new Set())
   // Snapshot objects keep their identity between changes, so this folds once
   // per real change rather than once per render.
   useEffect(() => {
-    setDone(previous => (previous === undefined ? previous : reduceDone(previous, list, status)))
+    setDone(previous => (previous === undefined
+      ? previous
+      : reduceDone(previous, list, status, seenRunning.current)))
   }, [list, status])
   useEffect(() => {
     if (!loaded.current || done === undefined) return

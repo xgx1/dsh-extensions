@@ -8,7 +8,7 @@ DSH Web GUI 侧边栏会话任务栏（纯 profile-bundle 覆盖层，**零官�
   - **等待回复**：会话名 + 🟡 琥珀点，点击跳转
 - 状态实时变化（运行中→结束自动移动分组）；侧边栏折叠为窄条时任务栏自动隐藏
 - **只列主会话，忽略子 agent 会话**：判定用官方同一个 `origin === 'subagent'` 标记（与工作区浏览器的过滤条件一致），子 agent 的运行/等待/结束状态归到父会话那一行
-- 数据复用官方两个只读源：`sessions.list`（标题与更新顺序）与 `uiSession.sessionStatus`（`running` / `pendingInteraction` / `completionUnread`）。「运行结束」组另有一份自己的确认态（宿主侧 Turso，见「持久化」），因为官方的 `completionUnread` 在会话成为主视图时就被清除——直接用它，点开会话的那一下就会把这一行点没
+- 数据复用官方两个只读源：`sessions.list`（标题与更新顺序）与 `uiSession.sessionStatus`（`running` / `pendingInteraction` / `completionUnread`）。「运行结束」组另有一份自己的确认态（宿主侧 Turso，见「持久化」）：官方 `completionUnread` 对「正看着的那个会话」是抑制的（跑完不升旗标），光靠它在主视图里跑完的会话永远进不了这一组
 
 ## 安装
 
@@ -24,7 +24,7 @@ systemctl --user restart dsh-web
 | `src/client/mount.tsx` | 等待官方 `[data-slot="sidebar.workspaces"]` 容器（MutationObserver），在它之前插入任务栏锚点并 `createRoot` 挂载（aionui-panel 同款 DOM 挂载先例） |
 | `src/client/TaskBar.tsx` | `useSyncExternalStore` 订阅官方 sessions 快照与统一 UI 状态快照；三组分类渲染；点击 `uiWorkspace.openSession(id)` 跳转；ResizeObserver 检测侧边栏折叠（宽度 < 100px 隐藏） |
 | `src/client/tasks.ts` | 纯函数分类：等待回复优先于运行中，运行中优先于绿色结束态；结束组按 `updatedAt` 最新在前，运行/等待组最旧在前；`origin === 'subagent'` 的会话三组全排除 |
-| `src/client/dismissals.ts` | 「运行结束」组的确认态：官方 `completionUnread` 上升时入列、点 ✕ 出列，另在会话重新运行或离开列表时出列；持久化走宿主路由（`GET` / `PUT` 同一路径） |
+| `src/client/dismissals.ts` | 「运行结束」组的确认态：官方 `completionUnread` 上升**或**会话的 `running` 由真变假（本浏览器见过它运行）时入列、点 ✕ 出列，另在会话重新运行或离开列表时出列；持久化走宿主路由（`GET` / `PUT` 同一路径） |
 | `src/index.ts` | 宿主侧：把确认态存进 Turso，并提供 `/plugins/dsh-sidebar-taskbar/done` 路由（`GET` 读、`PUT` 写，写前校验 body） |
 | `src/store.ts` | Turso 存储：`<DSH_HOME>/taskbar.db` 的 `done` 表，一行一个会话（`shown` / `unread` 两个标志），每次写入整表替换 |
 
@@ -36,7 +36,7 @@ systemctl --user restart dsh-web
 |---|---|---|
 | 🟡 等待回复 | `pendingInteraction !== undefined` | 该会话有最高优先级的待用户交互请求 |
 | 🔴 运行中 | `running === true` | 最近一次已知的运行状态为运行 |
-| 🟢 运行结束 | `completionUnread === true` | 在主视图之外观察到停止、且尚未确认——打开会话后由官方清除 |
+| 🟢 运行结束 | `completionUnread` 上升，或 `running` 下降 | 透传官方字段之外的入列判定由本插件的确认态做（见下节） |
 
 三者的优先级即上表顺序：欠回答的会话必须先看到。
 
@@ -50,7 +50,8 @@ systemctl --user restart dsh-web
 
 「运行结束」是通知，不是实时状态，所以它由本地确认态（`dismissals.ts`）驱动，而不是直接读官方旗标：
 
-- **入列**：官方 `completionUnread` 由假变真（含页面刚加载时就已经为真的情况）。
+- **入列**：两种完成信号任一即可——① 官方 `completionUnread` 由假变真（含页面刚加载时就已经为真的情况，即「在别处跑完」）；② 会话 `running` 由真变假且本浏览器见过它运行（即「就在主视图里跑完」）。②是必需的：官方对正看着的那个会话抑制 `completionUnread`，只看①的话，你在主视图里等的这一轮永远进不了结束组。
+- **列表未到位时不动**：`sessions.list` 的 `phase` 还是 `pending` 时（刷新后正在拉列表）不折叠、不回写，否则那份空快照会把宿主里已存的结束行覆盖成空，「关掉的保持关着」与「没关的刷新后还在」都会失真。
 - **不出列**：官方旗标由真变假——那是用户在点行跳转、官方就此「已读」，行必须活过这一下。
 - **出列**：点该行的 ✕；会话重新开始运行（移入「运行中」组）；会话从列表消失。
 - 关闭态由宿主持久化，刷新页面、换浏览器、重启 dsh-web 后依然关着；同一会话再次结束会重新入列。
@@ -66,6 +67,7 @@ systemctl --user restart dsh-web
 
 ## 变更记录
 
+- **0.5.1** — 修复「在主视图里跑完的会话不进入运行结束组」，并修复刷新页面会把结束组抹掉。根因：官方 `completionUnread` 对可见且聚焦的主视图会话是抑制的（`ui-session-status` 的 `publishStatus` 里 `id !== viewing` 才升旗标），而旧实现只认旗标上升，于是你盯着跑的那一轮结束后绿组一直是空的。现在入列信号改为「`completionUnread` 上升 **或** `running` 由真变假（本浏览器见过它运行）」；其余三条出列规则（点 ✕、重新运行、离开列表）不变。浏览器半在内存里记住「见过运行」的会话（不持久化：页面关着时错过的完成仍靠官方旗标），`DoneState.unread` 的字段名与库表不变，语义从「旗标已升过」变成「本轮完成已宣布」。同版修掉一个连带 bug：`sessions.list.phase` 还是 `pending`（刷新后刚到、列表还没回来）时不再折叠，否则空快照会立刻把宿主里已存的结束行覆盖成空——刷新之后结束组整组消失。
 - **0.5.0** — 「运行结束」的确认态从 localStorage 迁到宿主侧 Turso（`<DSH_HOME>/taskbar.db`）：新增宿主半（`src/index.ts` 路由 + `src/store.ts` 存储）与依赖 `@tursodatabase/database`，浏览器半改为 `GET`/`PUT` 同一路径。刷新页面、换浏览器、重启 dsh-web 之后结束组仍是上次关到的样子；关掉的行只有点 ✕、会话重新运行、或会话离开列表才会消失。**升级后要重启 dsh-web**（宿主半在启动时加载），只重建客户端 bundle 是不够的。
 - **0.4.1** — 适配 dsh 0.2.2-rc：`uiSession.sessionStatus` 从 ui-session 的普通字段变成独立 Cordis 子服务（由 `@deepseek-ai/dsh-client-ui-session-status` 提供），未在 `inject` 里声明就读取会抛 `cannot get property "uiSession.sessionStatus" without inject`。注入表补上 `uiSession.sessionStatus`，类型改从 `@deepseek-ai/dsh-client-ui-session-status` 取，`apply` 直接用 `ctx.uiSession.sessionStatus`（不再结构体强转）。
 - **0.4.0** — 忽略子 agent 会话。三组分类与结束组确认态都按官方 `origin === 'subagent'` 过滤，子 agent 的运行/等待/结束状态归到父会话行；旧确认态里已记录的子 agent 条目会被清掉。带 `parentId` 的非 subagent 会话（如 fork）不受影响。

@@ -174,7 +174,8 @@ describe('reduceDone', () => {
     const first = reduceDone(EMPTY_DONE, state, statusOf({ a: { completionUnread: true } }))
     const second = reduceDone(first, state, statusOf({ a: { completionUnread: false } }))
     expect(second.shown).toEqual([sid('a')])
-    expect(second.unread).toEqual([])
+    // Still the announced completion: the row lives on and must not re-announce.
+    expect(second.unread).toEqual([sid('a')])
   })
 
   it('does not re-add a row the user closed while the flag stays raised', () => {
@@ -194,6 +195,41 @@ describe('reduceDone', () => {
     expect(running.shown).toEqual([])
     const again = reduceDone(running, state, statusOf({ a: { completionUnread: true } }))
     expect(again.shown).toEqual([sid('a')])
+  })
+
+  it('announces a turn that finished in the main view, where the unread flag stays down', () => {
+    const state = list([summary({ id: 'watched', updatedAt: 1 })])
+    const seen = new Set([sid('watched')])
+    const running = reduceDone(EMPTY_DONE, state, statusOf({ watched: { running: true } }), seen)
+    expect(running.shown).toEqual([])
+    const finished = reduceDone(running, state, statusOf({ watched: { running: false } }), seen)
+    expect(finished.shown).toEqual([sid('watched')])
+    expect(finished.unread).toEqual([sid('watched')])
+  })
+
+  it('keeps that main-view row closed while the session stays idle', () => {
+    const state = list([summary({ id: 'watched', updatedAt: 1 })])
+    const seen = new Set([sid('watched')])
+    const finished = reduceDone(EMPTY_DONE, state, statusOf({ watched: { running: false } }), seen)
+    const closed = dismissDone(finished, sid('watched'))
+    expect(reduceDone(closed, state, statusOf({ watched: { running: false } }), seen).shown).toEqual([])
+  })
+
+  it('announces again when a main-view session runs and finishes a second time', () => {
+    const state = list([summary({ id: 'watched', updatedAt: 1 })])
+    const seen = new Set([sid('watched')])
+    const first = reduceDone(EMPTY_DONE, state, statusOf({ watched: { running: false } }), seen)
+    const again = reduceDone(first, state, statusOf({ watched: { running: true } }), seen)
+    expect(again.shown).toEqual([])
+    expect(again.unread).toEqual([])
+    const second = reduceDone(again, state, statusOf({ watched: { running: false } }), seen)
+    expect(second.shown).toEqual([sid('watched')])
+  })
+
+  it('does not announce an idle session this browser never saw running', () => {
+    const state = list([summary({ id: 'asleep', updatedAt: 1 })])
+    const seen = new Set<SessionId>()
+    expect(reduceDone(EMPTY_DONE, state, statusOf({ asleep: { running: false } }), seen).shown).toEqual([])
   })
 
   it('moves a finished row out once the session runs again', () => {
@@ -254,7 +290,15 @@ describe('reduceDone', () => {
     const legacy: DoneState = { shown: [sid('sub'), sid('plain')], unread: [sid('sub'), sid('plain')] }
     const next = reduceDone(legacy, state, statusOf({}))
     expect(next.shown).toEqual([sid('plain')])
-    expect(next.unread).toEqual([])
+    expect(next.unread).toEqual([sid('plain')])
+  })
+})
+
+describe('reduceDone during list arrival', () => {
+  it('keeps the persisted rows while the list is still arriving', () => {
+    const arriving: SessionListState = { ...list([summary({ id: 'a', updatedAt: 1 })]), ids: [], byId: {}, phase: 'pending' }
+    const state: DoneState = { shown: [sid('a')], unread: [sid('a')] }
+    expect(reduceDone(state, arriving, statusOf({}))).toBe(state)
   })
 })
 

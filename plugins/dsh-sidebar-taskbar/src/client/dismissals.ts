@@ -3,10 +3,12 @@
  *
  * A finished session stays in the bar until the user closes it. The official
  * `completionUnread` flag cannot serve as that fact on its own: the harness
- * clears it the moment the session becomes the main view, so the row the user
- * clicks to open a conversation would vanish on that same click. This module
- * therefore keeps its own "still owed a look" set, seeded from the official
- * flag when a completion is first observed and pruned only by an explicit
+ * suppresses it while the session is the visible, focused main view, so the
+ * conversation the user is watching finish never raises it. A completion is
+ * therefore announced on either signal — the official flag rising (a session
+ * that finished away from the main view), or the session's `running` flag
+ * falling after this browser saw it running (a finished main-view turn). This
+ * module keeps its own "already announced" set, pruned only by an explicit
  * dismissal, a session that starts running again, or a session leaving the
  * list. The host persists that set in its Turso database (`../store.ts`), so
  * every browser and every host restart see the same finished rows.
@@ -21,9 +23,11 @@ export interface DoneState {
   /** Sessions shown in the finished group until closed. */
   readonly shown: readonly SessionId[]
   /**
-   * Sessions whose official unread flag this bar last observed raised. Only
-   * raised flags are recorded: a flag last seen down reads the same as one
-   * never seen, so the down entries carry no fact worth persisting.
+   * Sessions whose current completion this bar has already announced. Keeps a
+   * closed row from announcing itself again while the session stays idle, so
+   * entries live until the session runs again or leaves the list. The stored
+   * name is unchanged from the earlier flag-raised meaning, which held the
+   * same role for the completions that did raise the official flag.
    */
   readonly unread: readonly SessionId[]
 }
@@ -37,45 +41,69 @@ const DONE_PATH = '/plugins/dsh-sidebar-taskbar/done'
 /**
  * Fold one pair of live snapshots into the finished-group state.
  *
- * A session joins `shown` when its official unread flag rises, which covers
- * both a completion observed live and one already pending on first paint. The
- * flag falling is deliberately ignored: that is the harness acknowledging the
- * completion by opening the session, and the row must outlive it. A session
- * that runs again leaves the finished group for the running one, and one that
- * leaves the Session list leaves both groups. Subagent-origin sessions are
- * never bar rows, so an entry recorded before that rule existed is dropped
- * here rather than lingering until the user closes it.
+ * A session joins `shown` on either completion signal, once per idle period:
+ * its official unread flag is raised (it finished while some other session
+ * was the main view, or before the bar loaded), or its `running` flag falls
+ * after a run this browser saw — which is the only signal left for a turn
+ * finished in the visible main view, whose flag the harness suppresses. The
+ * official flag falling is deliberately ignored: that is the harness
+ * acknowledging the completion by opening the session, and the row must outlive
+ * it. A session that runs again leaves the finished group for the running one,
+ * and one that leaves the Session list leaves both groups. Subagent-origin
+ * sessions are never bar rows, so an entry recorded before that rule existed
+ * is dropped here rather than lingering until the user closes it.
  * @param state - state carried from the previous snapshot.
  * @param list - the sessions list snapshot.
  * @param status - the `uiSession.sessionStatus` snapshot.
+ * @param seenRunning - sessions this browser has seen running; kept across
+ *   calls so the falling edge stays observable, and pruned here. Not persisted:
+ *   a completion missed while the page was closed still needs the official flag.
  * @returns the next state, or the same reference when nothing moved.
  */
 export function reduceDone(
   state: DoneState,
   list: SessionListState,
   status: SessionStatusSnapshot,
+  seenRunning: Set<SessionId> = new Set(),
 ): DoneState {
+  // A list still arriving is empty, not truly empty: folding it would drop rows
+  // the host already persisted, so a reload would wipe the finished group.
+  if (list.phase !== 'ready') return state
   const shown = new Set(state.shown)
-  const unread = new Set<SessionId>()
+  const announced = new Set(state.unread)
+  for (const id of [...seenRunning]) {
+    if (list.byId[id] === undefined) seenRunning.delete(id)
+  }
   for (const id of list.ids) {
     const summary = list.byId[id]
     if (summary === undefined || isSubagentSession(summary)) {
       shown.delete(id)
+      announced.delete(id)
+      seenRunning.delete(id)
       continue
     }
     const facts = status.get(id)
-    const flag = facts?.completionUnread === true
-    if (flag) {
-      // A flag this bar has not seen raised yet is a completion to announce,
-      // whether it just happened or was already pending when the bar loaded.
-      if (!state.unread.includes(id)) shown.add(id)
-      unread.add(id)
+    if (facts === undefined) continue
+    if (facts.running === true) {
+      // Running again: the last completion is spent, a new one will be owed.
+      shown.delete(id)
+      announced.delete(id)
+      seenRunning.add(id)
+      continue
     }
-    if (facts?.running === true) shown.delete(id)
+    // shortcut: a turn that ends while this page is closed leaves neither signal
+    // here, so only the official flag can cover it.
+    if (announced.has(id)) continue
+    if (seenRunning.has(id) || facts.completionUnread === true) {
+      shown.add(id)
+      announced.add(id)
+    }
   }
   const next: DoneState = {
     shown: list.ids.filter(id => shown.has(id)),
-    unread: list.ids.filter(id => unread.has(id)),
+    // An announced completion stays announced until the session runs again or
+    // leaves the list, so a closed row cannot come back while it stays idle.
+    unread: list.ids.filter(id => announced.has(id)),
   }
   return sameDone(state, next) ? state : next
 }
