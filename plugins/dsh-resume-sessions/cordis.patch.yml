@@ -1,0 +1,14 @@
+# dsh-resume-sessions bundle patch: inserts one row into whatever profile
+# selects this bundle.
+#
+# After the host reports startup readiness the row cold-resumes every session
+# whose turn was still open when the last host stopped and hands it one
+# follow-up message. The deployment switch is this config:
+#   enabled: false  — keep tracking nothing and resume nothing
+#   delayMs         — spacing between two resumed sessions (serial, one at a time)
+- insert:
+    - id: resume-sessions
+      name: 'dsh-resume-sessions'
+      config:
+        enabled: true
+        delayMs: 2000
