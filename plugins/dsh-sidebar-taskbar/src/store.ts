@@ -13,7 +13,7 @@ import { dirname } from 'node:path'
 export interface DoneState {
   /** Sessions still listed in the finished group until closed. */
   readonly shown: readonly string[]
-  /** Sessions whose official unread flag the bar already announced. */
+  /** Sessions whose current completion the bar already announced. */
   readonly unread: readonly string[]
 }
 
