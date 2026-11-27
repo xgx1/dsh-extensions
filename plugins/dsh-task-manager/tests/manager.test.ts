@@ -3,13 +3,14 @@
  * 只测服务层（route 是十行转发，host 面没有身份语义）。
  */
 import { describe, expect, it } from 'vitest'
-import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { execFile, execFileSync } from 'node:child_process'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTaskManager } from '../src/orchestrator.ts'
-import { CaptainStore, ConsoleStore, TaskStore } from '../src/stores.ts'
+import { CaptainStore, ConsoleStore, SettingsStore, TaskStore } from '../src/stores.ts'
 import { FakeAgent, FakeAgents, FakeSubagents } from './fakes.ts'
+import type { TaskRecord } from '../src/records.ts'
 
 async function rig() {
   const dir = await mkdtemp(join(tmpdir(), 'task-manager-manager-'))
@@ -147,7 +148,155 @@ describe('card questions and answers', () => {
       await rm(`${repo}-abcdef12`, { recursive: true, force: true })
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
+
+describe('执行落点：worktree 复用 / 情形模型（2026-11-22）', () => {
+  const gitSync = (cwd: string, args: string[]): string => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+  const initRepo = async (): Promise<string> => {
+    const repo = await mkdtemp(join(tmpdir(), 'task-manager-reuse-'))
+    gitSync(repo, ['init', '-q'])
+    await writeFile(join(repo, 'f.txt'), 'base\n')
+    gitSync(repo, ['add', '.'])
+    gitSync(repo, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init'])
+    return repo
+  }
+  const execRig = async (dir: string, options?: { settings?: SettingsStore }) => {
+    const store = new TaskStore(dir)
+    const created: Array<{ cwd?: string; agentPreset?: string }> = []
+    const selected: Array<{ sessionId: string; provider: string; model: string }> = []
+    const service = createTaskManager({
+      store,
+      captains: new CaptainStore(dir),
+      consoleStore: new ConsoleStore(dir),
+      settings: options?.settings,
+      resolveRuntime: () => ({
+        subagents: new FakeSubagents(),
+        agents: new FakeAgents(),
+        sessionController: {
+          create: async (request) => {
+            created.push(request)
+            return { sessionId: `session-exec-${created.length}` }
+          },
+          resolveAgent: async () => ({ agent: { followup: () => undefined } }),
+          selectModel: async (request) => { selected.push(request) },
+        },
+      }),
+      now: () => 2_000,
+    })
+    return { store, service, created, selected }
+  }
+  const seed = async (store: TaskStore, id: string, repo: string, overrides?: Partial<TaskRecord>): Promise<void> => {
+    await store.mutate((tasks) => {
+      tasks.push({
+        id, title: `task ${id}`, content: '内容', status: 'not-started', runMode: 'cwd',
+        directory: repo, project: repo, dispatchRound: 0, needsFinalReview: false,
+        createdAt: 1, updatedAt: 1, ...overrides,
+      })
+    })
+  }
+
+  it('新任务复用已完成任务的干净 worktree，从项目 HEAD 切新分支', async () => {
+    const repo = await initRepo()
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-reuse-state-'))
+    try {
+      const { store, service, created } = await execRig(dir)
+      await seed(store, 'aaaaaaaa1111', repo)
+      await service.startExecution('aaaaaaaa1111')
+      await service.setStatus('aaaaaaaa1111', 'done')
+      await seed(store, 'bbbbbbbb2222', repo)
+      await service.startExecution('bbbbbbbb2222')
+      expect(created[1]?.cwd).toBe(`${repo}-aaaaaaaa`)
+      const taskB = (await service.list()).find((item) => item.id === 'bbbbbbbb2222')
+      expect(taskB?.worktreeBranch).toBe('task/bbbbbbbb')
+      expect(gitSync(`${repo}-aaaaaaaa`, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('task/bbbbbbbb')
+      expect(gitSync(`${repo}-aaaaaaaa`, ['rev-parse', 'HEAD']).trim()).toBe(gitSync(repo, ['rev-parse', 'HEAD']).trim())
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(`${repo}-aaaaaaaa`, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('脏树的完成 worktree 不复用，另建新目录', async () => {
+    const repo = await initRepo()
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-dirty-state-'))
+    try {
+      const { store, service, created } = await execRig(dir)
+      await seed(store, 'aaaaaaaa1111', repo)
+      await service.startExecution('aaaaaaaa1111')
+      await service.setStatus('aaaaaaaa1111', 'done')
+      await writeFile(join(`${repo}-aaaaaaaa`, 'f.txt'), 'dirty\n')
+      await seed(store, 'cccccccc3333', repo)
+      await service.startExecution('cccccccc3333')
+      expect(created[1]?.cwd).toBe(`${repo}-cccccccc`)
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(`${repo}-aaaaaaaa`, { recursive: true, force: true })
+      await rm(`${repo}-cccccccc`, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('existing-worktree 卡直接在自己的 worktree 里执行，不再套一层', async () => {
+    const repo = await initRepo()
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-existing-state-'))
+    try {
+      gitSync(repo, ['worktree', 'add', `${repo}-wt`, '-b', 'feature/x'])
+      const { store, service, created } = await execRig(dir)
+      await seed(store, 'dddddddd4444', repo, { runMode: 'existing-worktree', directory: `${repo}-wt`, worktreeBranch: 'feature/x' })
+      await service.startExecution('dddddddd4444')
+      expect(created[0]?.cwd).toBe(`${repo}-wt`)
+      const task = (await service.list()).find((item) => item.id === 'dddddddd4444')
+      expect(task?.worktreeBranch).toBe('feature/x')
+      expect(task?.directory).toBe(`${repo}-wt`)
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(`${repo}-wt`, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('情形模型：白名单内的路由覆盖执行会话模型', async () => {
+    const repo = await initRepo()
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-model-state-'))
+    try {
+      const settings = new SettingsStore(dir)
+      const { store, service, selected } = await execRig(dir, { settings })
+      await service.saveSettings({ allowedModels: ['prov/model-x'], situationModels: { complex: 'prov/model-x' } })
+      await seed(store, 'eeeeeeee5555', repo, { situation: 'complex' })
+      await service.startExecution('eeeeeeee5555')
+      expect(selected[0]).toEqual({ sessionId: 'session-exec-1', provider: 'prov', model: 'model-x' })
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(`${repo}-eeeeeeee`, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('情形模型不在白名单：不覆盖；设置保存规范化并落盘', async () => {
+    const repo = await initRepo()
+    const dir = await mkdtemp(join(tmpdir(), 'task-manager-settings-state-'))
+    try {
+      const settings = new SettingsStore(dir)
+      const { store, service, selected } = await execRig(dir, { settings })
+      const saved = await service.saveSettings({
+        allowedModels: ['prov/a', 'bad route', 'prov/a', '/x'],
+        situationModels: { complex: 'prov/a', simple: 'prov/not-allowed' },
+      })
+      expect(saved.allowedModels).toEqual(['prov/a'])
+      expect(saved.situationModels).toEqual({ complex: 'prov/a' })
+      expect(await service.getSettings()).toEqual(saved)
+      await seed(store, 'ffffffff6666', repo, { situation: 'simple' })
+      await service.startExecution('ffffffff6666')
+      expect(selected).toEqual([])
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(`${repo}-ffffffff`, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+})
 
   it('rejects an empty answer and an already answered question', async () => {
     const { dir, service } = await rig()
@@ -213,7 +362,7 @@ describe('execution session continuity', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('starts a fresh session only when the recorded one cannot be resumed', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'task-manager-resume-gone-'))
@@ -266,7 +415,7 @@ describe('execution session continuity', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 
   it('resumes the recorded session right after a restart instead of waiting out the idle window', async () => {
     const home = await mkdtemp(join(tmpdir(), 'task-manager-restart-'))
@@ -324,5 +473,5 @@ describe('execution session continuity', () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 })

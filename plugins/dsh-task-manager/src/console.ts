@@ -5,7 +5,7 @@
  * - **项目管理器**：每个项目（git 仓库根路径为主键）一个会话，拆单、起执行会话、裁决下一步、巡查触发器。
  *
  * 两者都是普通会话，但**没有宿主会话**：经 `sessionController.create` 直接建立，
- * 重启后按 `console.json` 里的 sessionId 冷恢复（`reusable: () => true`）。
+ * 重启后按 `console` 文档里的 sessionId 冷恢复（`reusable: () => true`）。
  * 投递复用 managed-reply 的人类消息路径，所以管理器收到的是真实用户输入。
  */
 import { mkdir } from 'node:fs/promises'
@@ -72,7 +72,7 @@ async function persistManager(
 /**
  * 建或唤醒一个管理器会话。
  * @param runtime - 持有 Agent 注册表与会话控制器的运行时。
- * @param store - `console.json` 注册表。
+ * @param store - `console` 文档注册表。
  * @param project - 项目主键（git 根）；大管理器传 undefined。
  * @param request - 会话的 cwd 与预设。
  * @returns 最新的管理器记录。

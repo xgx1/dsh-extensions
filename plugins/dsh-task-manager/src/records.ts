@@ -3,7 +3,7 @@
  *
  * Single source of truth for the persisted task/orchestration shapes shared by
  * the host service, the HTTP routes, the model tools (M2), and the GUI (M4).
- * Old `tasks.json` records predate the orchestration fields; loading must
+ * Old `tasks.json` records (imported once into the database) predate the orchestration fields; loading must
  * tolerate them by filling defaults at read time (never throwing, never
  * dropping the legacy keys).
  */
@@ -21,10 +21,8 @@ export type RunMode = 'cwd' | 'new-worktree' | 'existing-worktree'
  * 否则执行会话看不见、简报里的「先加载」会落空）。
  */
 export const TEST_SKILLS = [
-  'tdd-fanout',
   'write-manual-test-doc',
   'verification-before-completion',
-  'background-window-control',
 ] as const
 
 /** One captain report written back through the restricted report path. */
@@ -49,6 +47,41 @@ export interface TaskTestDoc {
 }
 
 /** One persisted task record (orchestration fields added in M1). */
+/** 任务情形（设置面板按它选模型）：简单 / 复杂 / 长时运行。 */
+export type TaskSituation = 'simple' | 'complex' | 'long-running'
+export const SITUATIONS: readonly TaskSituation[] = ['simple', 'complex', 'long-running']
+
+/** 设置面板（2026-11-22 用户要求）：允许使用的模型 + 各情形用哪个模型。 */
+export interface TaskSettings {
+  /** 允许任务管理使用的模型路由（`provider/model`）；空 = 不覆盖任何会话的模型。 */
+  allowedModels: string[]
+  /** 情形 → 模型路由（必须在 allowedModels 里）；缺省情形用宿主默认模型。 */
+  situationModels: Partial<Record<TaskSituation, string>>
+}
+
+/** 模型路由：provider 一段 + model 至少一段（model 可含斜杠），无空白。 */
+function asModelRoute(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const route = value.trim()
+  return /^[^/\s]+\/\S+$/.test(route) ? route : undefined
+}
+
+/** 校验并规范化设置正文：非法路由丢弃，情形模型必须在白名单内。 */
+export function normalizeSettings(raw: unknown): TaskSettings {
+  const source = (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) ? raw as Record<string, unknown> : {}
+  const allowedRaw = Array.isArray(source['allowedModels']) ? source['allowedModels'] : []
+  const allowedModels = [...new Set(allowedRaw.map(asModelRoute).filter((route): route is string => route !== undefined))]
+  const modelsRaw = (typeof source['situationModels'] === 'object' && source['situationModels'] !== null && !Array.isArray(source['situationModels']))
+    ? source['situationModels'] as Record<string, unknown>
+    : {}
+  const situationModels: Partial<Record<TaskSituation, string>> = {}
+  for (const situation of SITUATIONS) {
+    const route = asModelRoute(modelsRaw[situation])
+    if (route !== undefined && allowedModels.includes(route)) situationModels[situation] = route
+  }
+  return { allowedModels, situationModels }
+}
+
 export interface TaskRecord {
   id: string
   title: string
@@ -56,17 +89,17 @@ export interface TaskRecord {
   status: Status
   runMode: RunMode
   directory: string
+  /** 任务情形；缺省用宿主默认模型（设置面板按情形覆盖）。 */
+  situation?: TaskSituation
   worktreeBranch?: string
   /** 用户验收通过后把任务分支合回项目分支的提交 id（`setStatus(done)` 副作用）。 */
   mergeCommit?: string
   /** 对账器自动重起执行会话的次数（上限 1，避免无限重试）。 */
   autoRetries?: number
-  /** 交给 Super Agent 执行时的 Worker id（方案 B：任务台派单 → Super Agent Worker）。 */
-  superAgentWorkerId?: string
   conversations?: ConversationSummary[]
   /** 队长类别；首次派发时写入。 */
   category?: string
-  /** 派发到的队长会话 id；与 captains.json 中该类别的 sessionId 一致。 */
+  /** 派发到的队长会话 id；与 `captains` 文档中该类别的 sessionId 一致。 */
   captainSessionId?: string
   /** 派发轮次：0 = 从未派发；每次成功 assign +1（含同单重派）。 */
   dispatchRound: number
@@ -124,7 +157,7 @@ export interface ConversationSummary {
   origin?: string
 }
 
-/** One captain registry entry persisted in `captains.json`. */
+/** One captain registry entry persisted in the `captains` document. */
 export interface CaptainRecord {
   /** 类别章程全文（类别差异的唯一载体，ADR-0002）。 */
   charter: string
@@ -136,7 +169,7 @@ export interface CaptainRecord {
   lastDispatchAt?: number
 }
 
-/** captains.json on-disk shape: category → record. */
+/** `captains` document shape: category → record. */
 export type CaptainRegistryData = Record<string, CaptainRecord>
 
 /** Orchestrator error carrying a stable code the routes map to HTTP statuses. */
@@ -166,9 +199,11 @@ export type OrchestratorErrorCode =
   | 'DELIVERY_UNAVAILABLE'
   /** startContinuable 建会话失败（已回滚注册表 sessionId）。→ 502 */
   | 'CREATION_FAILED'
+  /** 任务进行中：拒绝删除，先改状态（别丢下还在干活的执行会话）。→ 409 */
+  | 'TASK_IN_PROGRESS'
 
 /**
- * Normalize one raw tasks.json entry into a well-typed TaskRecord.
+ * Normalize one raw legacy task entry into a well-typed TaskRecord.
  *
  * Migration tolerance: legacy records keep every original key (spread first);
  * missing orchestration fields get defaults (`dispatchRound` 0,
@@ -242,7 +277,7 @@ function asSafeCount(value: unknown): number | undefined {
 }
 
 /**
- * Normalize one raw captains.json entry. Unknown keys survive the spread;
+ * Normalize one raw captain entry. Unknown keys survive the spread;
  * charter defaults to '' and createdAt defaults to first-seen time.
  */
 export function normalizeCaptainEntry(raw: unknown): CaptainRecord | null {
@@ -346,15 +381,16 @@ export function applyAnswerToTask(
   return target
 }
 
-/** 用户答复投给管理器的正文：带着问题原文，管理器不需要回头翻卡片。 */
-export function buildAnswerText(input: { task: Pick<TaskRecord, 'id' | 'title'>; question: TaskQuestion; answer: string }): string {
+/** 用户答复投给执行会话/管理器的正文：带着问题原文，接收方不需要回头翻卡片。 */
+export function buildAnswerText(input: { task: Pick<TaskRecord, 'id' | 'title'>; question: TaskQuestion; answer: string; adopted?: boolean }): string {
   return [
     `【任务台·答复】${input.task.title}（${input.task.id}）`,
     '',
     `- 问题: ${input.question.text}`,
     `- 用户答复: ${input.answer}`,
+    ...(input.adopted === true ? ['', '（用户一键采纳了推荐答案：按推荐口径继续推进。）'] : []),
     '',
-    '按这条答复继续推进；还有别的待办就继续落在卡片上。',
+    '按这条答复继续推进任务。',
   ].join('\n')
 }
 
@@ -363,7 +399,7 @@ export interface OutboundUserMessage {
   readonly id: string
   readonly role: 'user'
   readonly content: Array<{ type: 'text'; text: string }>
-  readonly source: { kind: 'plugin'; plugin: string }
+  readonly source: { kind: 'task-manager' }
 }
 
 /**
@@ -378,7 +414,8 @@ export function createOutboundMessage(content: string): OutboundUserMessage {
     id: randomUUID(),
     role: 'user' as const,
     content: [{ type: 'text' as const, text: content }],
-    source: { kind: 'plugin' as const, plugin: 'dsh-task-manager' },
+    // format v4 拒绝退役的 {kind:'plugin'} 包装：kind 直接署名生产者。
+    source: { kind: 'task-manager' as const },
   })
 }
 
@@ -432,18 +469,20 @@ export function buildDispatchBrief(input: {
  * 「指派任务」投给大管理器的正文（ADR-0014）：大管理器只做路由，不动手。
  * @param text - 用户粘贴的任务正文。
  * @param cwdHint - 当前工作区目录，作为判断项目归属的提示。
+ * @param workspaces - 可用工作区（路径 — 用途关键词），没有项目路径时按用途匹配选 cwd。
  */
-export function buildConsoleAssignment(text: string, cwdHint?: string, sources?: string[]): string {
+export function buildConsoleAssignment(text: string, cwdHint?: string, sources?: string[], workspaces?: Array<{ path: string; purpose: string }>): string {
   return [
     '【任务台·指派】用户把这件事交给你：',
     '',
     text.trim(),
     ...(cwdHint === undefined ? [] : ['', `- 项目路径（原样传给 task_dispatch_project 的 cwd，不要向上找仓库根）: ${cwdHint}`]),
     ...(sources === undefined || sources.length === 0 ? [] : [`- 本单订阅的触发器: ${sources.join(' / ')}（派单时原样传给 task_dispatch_project 的 sources）`]),
+    ...(workspaces === undefined || workspaces.length === 0 ? [] : ['', '## 可用工作区（路径 — 用途关键词）', ...workspaces.map((workspace) => `- ${workspace.path} — ${workspace.purpose}`)]),
     '',
     '你只做一件事：调用 task_dispatch_project 派给该项目的项目管理器。',
     '- 有「项目路径」就原样传 cwd，**不要改成上层目录**：host 会在那个目录建仓库与 worktree。',
-    '- 没有项目路径时，看正文里出现的绝对路径；还是没有就调 task_console_state 看已有哪些项目。',
+    '- 没有项目路径时，先按正文与各工作区用途关键词的匹配度选 cwd；匹配不上再看正文里的绝对路径，或调 task_console_state 看已有哪些项目。',
     '- 你没有 shell、没有文件读写，只能用 task_* 工具；不要输出工具格式的文本，直接发起工具调用。',
   ].join('\n')
 }
@@ -564,8 +603,8 @@ function testSkillLine(): string {
 }
 
 /**
- * 进入待测试时自动生成的测试文档：告诉人（和执行会话）这一单具体要测什么、怎么测、
- * 交回哪里。执行会话测完用 task_test_doc 把它换成正式版（origin: 'session'）。
+ * 进入待测试时自动生成的人工测试文档：告诉人（和执行会话）这一单具体要测什么、
+ * 怎么人工测、交回哪里。人工测完用 task_test_doc 把它换成正式版（origin: 'session'）。
  */
 export function buildTestDocMarkdown(task: TaskRecord): string {
   const lines: string[] = [
@@ -579,7 +618,7 @@ export function buildTestDocMarkdown(task: TaskRecord): string {
   lines.push(
     `- 生成: ${new Date(task.updatedAt).toISOString()}`,
     '',
-    '_这是进入待测试时按技能模板自动生成的一份；执行会话测完会把它换成正式测试文档。_',
+    '_这是进入待测试时按人工测试模板自动生成的一份；人工测完会把它换成正式测试文档。_',
     '',
     '## 一、要测什么',
     '',
@@ -594,25 +633,25 @@ export function buildTestDocMarkdown(task: TaskRecord): string {
   else for (const item of evidence) lines.push(`- \`${item}\``)
   lines.push(
     '',
-    '## 二、怎么测（两段都要做，缺一不算测完）',
+    '## 二、怎么测（人工测试，逐项做完）',
     '',
     `强制技能（动手前先加载）：${testSkillLine()}`,
     '',
-    '### 1. 写测试案例，再真跑一遍',
+    '### 1. 列出要测的功能与流程',
     '',
-    '- `tdd-fanout` 会把测试类技能整套扇出，按项目栈挑写用例的那个，用例落进仓库的测试目录；',
-    '- 跑完把命令与输出贴进正式文档，不许只写「大概没问题」。',
+    '- 结合「一、要测什么」里的需求与改动，把需要人工验证的功能点逐条列出来；',
+    '- 对每条写明：操作步骤、预期结果、在哪个页面/窗口操作。',
     '',
-    '### 2. 模拟点击桌面窗口',
+    '### 2. 按流程真操作一遍',
     '',
-    '- 按 `background-window-control` 的规矩，经 `ego_*` / `cua_driver_native__*` 在 agent 桌面的窗口里真点一遍主流程；',
-    '- 只点自己起的窗口，不抢人的前台焦点；',
-    '- 每一步「点了什么 → 看到什么」都要记下来，失败留下截图路径。',
+    '- 按 `write-manual-test-doc` 的模板，把每条功能点的人工测试用例写进正式文档；',
+    '- 逐条执行，记录「操作了什么 → 看到了什么 → 符不符合预期」；',
+    '- 失败的留下截图路径或报错输出。',
     '',
     '## 三、收尾',
     '',
     '- `verification-before-completion` 核对：每个结论都有命令输出或截图撑着；',
-    '- 测完用 `task_test_doc({ taskId, text })` 把这份文档换成正式版：逐项写「用例 / 命令 / 结果」，以及「点了哪些窗口、看到什么」；',
+    '- 测完用 `task_test_doc({ taskId, text })` 把这份文档换成正式版（人工测试文档）：逐项写「功能点 / 操作步骤 / 预期结果 / 实际结果 / 结论」；',
     `- 测试没过就用 \`task_report({ taskId: "${task.id}", status: "problem", text: "测试没过：…" })\` 说清卡在哪，别自己改状态。`,
     '',
   )
@@ -634,18 +673,18 @@ export function buildTestBrief(task: TaskRecord): string {
     `强制技能（第一步就加载）：${testSkillLine()}`,
     '',
     '必须做完这两段再收工：',
-    '1) 写测试案例并真跑一遍（`tdd-fanout` 扇出写用例的技能），把命令与输出留下；',
-    '2) 经 `ego_*` / `cua_driver_native__*` 模拟点击桌面窗口，把主流程点一遍（只点自己起的窗口，不抢前台焦点）。',
+    '1) 列出要测的功能与流程，写明操作步骤、预期结果、在哪个页面/窗口操作；',
+    '2) 按 `write-manual-test-doc` 模板，逐条执行人工测试，记录「操作了什么 → 看到了什么 → 符不符合预期」，失败的留下截图路径或报错输出。',
     '',
     `测完用 \`task_test_doc({ taskId: "${task.id}", text: "…" })\` 交回正式测试文档` +
-      '（逐项写用例 / 命令 / 结果，以及点了哪些窗口、看到什么）。',
+      '（逐项写功能点 / 操作步骤 / 预期结果 / 实际结果 / 结论，以及人工测试时看到的情况）。',
     evidence.length === 0 ? '汇报里没有证据：先看工作目录的提交与 diff。' : `证据：${evidence.join(' / ')}`,
     '测试没过用 task_report(status: "problem") 说明卡在哪；不要自己改卡片状态。',
   ].join('\n')
 }
 
 /**
- * 进入待测试时把「要测什么」落到卡片上：已有一份比最近一次汇报还新的文档（多半是执行会话
+ * 进入待测试时把「要测什么」落到卡片上：已有一份比最近一次汇报还新的文档（多半是人工
  * 测完写的正式版）就不覆盖，否则重新生成。
  */
 export function applyTestDocForRound(task: TaskRecord, at: number): void {

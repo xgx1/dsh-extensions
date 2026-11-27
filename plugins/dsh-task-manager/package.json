@@ -45,12 +45,14 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "link:../../deepseek-harness/vendor/cordis",
-    "@deepseek-ai/dsh-llm": "link:../../deepseek-harness/packages/llm/llm",
-    "@deepseek-ai/dsh-tools": "link:../../deepseek-harness/packages/core/tools",
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness/vendor/cordis",
+    "@deepseek-ai/dsh-llm": "link:../../../deepseek-harness/packages/llm/llm",
+    "@deepseek-ai/dsh-tools": "link:../../../deepseek-harness/packages/core/tools",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",
+    "dompurify": "^3.4.16",
+    "marked": "^18.0.11",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsdown": "0.22.2",
@@ -61,5 +63,8 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit --pretty false",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@tursodatabase/database": "^0.8.4"
   }
 }

@@ -41,6 +41,7 @@ export function statusForError(error: unknown): number {
     MANAGER_AGENT_REQUIRED: 409,
     DELIVERY_UNAVAILABLE: 409,
     CREATION_FAILED: 502,
+    TASK_IN_PROGRESS: 409,
   }
   return table[error.code] ?? 500
 }

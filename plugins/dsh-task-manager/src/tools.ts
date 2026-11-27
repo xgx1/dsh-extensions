@@ -15,7 +15,7 @@
  * registry-enforced.
  */
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { STATUSES, type Status } from './records.ts'
+import { STATUSES, SITUATIONS, type Status, type TaskSituation } from './records.ts'
 import { type TaskManagerService } from './orchestrator.ts'
 
 /** Minimal structural view of the tool execution context (agent is optional). */
@@ -326,6 +326,7 @@ export function registerTaskTools(
       title: { type: 'string', description: '标题；缺省取正文第一行前 60 字。' },
       directory: { type: 'string', description: '任务目录；缺省当前会话工作目录。' },
       needsFinalReview: { type: 'boolean', description: '是否需用户终审后才能关单；缺省 false。' },
+      situation: { type: 'string', description: '任务情形：simple（简单）/ complex（复杂）/ long-running（长时运行）。设置面板按情形选模型；缺省用宿主默认模型。' },
     },
     output: {
       schema: {
@@ -351,6 +352,7 @@ export function registerTaskTools(
         ...(args.title !== undefined ? { title: args.title } : {}),
         ...(args.directory !== undefined ? { directory: args.directory } : {}),
         ...(args.needsFinalReview !== undefined ? { needsFinalReview: args.needsFinalReview } : {}),
+        ...(typeof args.situation === 'string' && (SITUATIONS as readonly string[]).includes(args.situation) ? { situation: args.situation as TaskSituation } : {}),
       })
       return {
         id: task.id,
@@ -588,13 +590,13 @@ export function registerTaskTools(
   register(defineTool({
     name: 'task_test_doc',
     description:
-      '交回测试文档：卡片进入待测试后，按测试简报做完两段测试（写用例真跑 + 模拟点桌面窗口），用它把正式测试文档写回卡片（卡片「测试文档」窗口看到的就是它）。只能写派发给自己的任务。',
+      '交回测试文档：卡片进入待测试后，按人工测试简报完成人工测试，用它把正式测试文档写回卡片（卡片「测试文档」窗口看到的就是它）。只能写派发给自己的任务。',
     parameters: {
       taskId: { type: 'string', required: true, description: '任务 id（task_claim 可查）。' },
       text: {
         type: 'string',
         required: true,
-        description: '测试文档正文（Markdown）：逐项写用例/命令/结果/结论，以及点了哪些窗口、看到什么。',
+        description: '测试文档正文（Markdown）：逐项写功能点/操作步骤/预期结果/实际结果/结论，以及人工测试时看到的情况。',
       },
     },
     output: {

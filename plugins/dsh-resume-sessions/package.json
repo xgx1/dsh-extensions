@@ -1,0 +1,44 @@
+{
+  "name": "dsh-resume-sessions",
+  "version": "0.1.0",
+  "description": "DSH host plugin: a session whose turn was still open when the Harness stopped is cold-resumed once after the next boot and handed one follow-up message, so the model continues the interrupted work — serial, with subagent/archive/goal/manual-cancel boundaries; a pure profile-bundle overlay, zero dsh source changes",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@tursodatabase/database": "^0.8.4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../../../deepseek-harness-dev/vendor/cordis",
+    "@deepseek-ai/dsh-session": "link:../../../deepseek-harness-dev/packages/core/session",
+    "@types/node": "^22.20.0",
+    "tsdown": "0.22.2",
+    "typescript": "~5.7.2",
+    "vitest": "^4.1.8"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test": "vitest run"
+  }
+}

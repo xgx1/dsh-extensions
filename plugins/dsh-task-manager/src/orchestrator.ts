@@ -47,11 +47,16 @@ import {
   buildReplyText,
   buildTestBrief,
   createOutboundMessage,
+  normalizeSettings,
+  SITUATIONS,
+  type TaskSettings,
+  type TaskSituation,
 } from './records.ts'
 import { type ReplyRuntime } from './managed-reply.ts'
 import {
   CaptainStore,
   ConsoleStore,
+  SettingsStore,
   TaskStore,
   summarizeCaptains,
   type ConsoleManagerRecord,
@@ -67,9 +72,8 @@ import {
   gitRootOf,
 } from './console.ts'
 import { deliverHumanMessage } from './managed-reply.ts'
-import { seatSessions } from './workspaces.ts'
+import { collectWorkspaceBriefs, seatSessions } from './workspaces.ts'
 import { registerExecSeat } from './seats.ts'
-import { dispatchToSuperAgent } from './superagent.ts'
 
 /** Service key published on the host context (consumed by M2 tools via ctx.get). */
 export const TASK_MANAGER_SERVICE = 'taskManager'
@@ -125,7 +129,7 @@ export interface SubagentsLike {
     parent: AgentLike,
     childId: string,
     content: TextBlockLike[],
-    options: { source: { kind: 'plugin'; plugin: string }; signal: AbortSignal },
+    options: { source: { kind: 'task-manager' }; signal: AbortSignal },
   ): Promise<string>
 }
 
@@ -147,6 +151,8 @@ export interface TaskManagerDeps {
   resolveRuntime: () => OrchestratorRuntime
   /** 两层管理器注册表（ADR-0014）；缺失时管理器相关方法明确报错。 */
   consoleStore?: ConsoleStore
+  /** 设置面板存储（`settings` 文档）；缺失时不覆盖任何会话的模型。 */
+  settings?: SettingsStore
   /** 大管理器会话的工作目录（默认 stateDir 下的 console 目录）。 */
   consoleCwd?: string
   /** 执行会话的座位目录（agent-configs 登记过 core 工具）；默认 <store 目录>/exec。 */
@@ -211,9 +217,15 @@ export interface TaskManagerService {
     options?: { managerSessionId?: string },
   ): Promise<{ taskId: string; delivery: 'live' | 'cold'; at: number }>
   /** Manager 建单（cwd 模式；worktree 流程走 HTTP /create 路由）。 */
-  create(input: { title?: string; content: string; directory?: string; needsFinalReview?: boolean }): Promise<TaskRecord>
+  create(input: { title?: string; content: string; directory?: string; needsFinalReview?: boolean; situation?: TaskSituation }): Promise<TaskRecord>
   /** Manager 显式改状态（形式核验关单/打回通道；不做终审钳制——set-status 是用户的终审关单通道）。 */
   setStatus(taskId: string, status: Status): Promise<TaskRecord>
+  /** 删除任务记录（不动会话/worktree/git 分支；in-progress 拒绝，先改状态再删）。 */
+  deleteTask(taskId: string): Promise<{ taskId: string }>
+  /** 设置面板：读当前设置（允许的模型 + 情形→模型）。 */
+  getSettings(): Promise<TaskSettings>
+  /** 设置面板：校验并保存设置（非法路由丢弃，情形模型必须在白名单内）。 */
+  saveSettings(input: unknown): Promise<TaskSettings>
   /** 任务列表（可按类别/状态过滤，updatedAt 降序）。 */
   list(filter?: { category?: string; status?: Status }): Promise<TaskRecord[]>
   /** 注册表快照（含类别任务计数）。 */
@@ -323,7 +335,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     if (subagents !== undefined && managerSessionId !== undefined) {
       const managerAgent = resolveManagerAgent(managerSessionId)
       await subagents.followup(managerAgent, sessionId, [{ type: 'text', text }], {
-        source: { kind: 'plugin', plugin: 'dsh-task-manager' },
+        source: { kind: 'task-manager' },
         signal: new AbortController().signal,
       })
       return 'cold'
@@ -364,6 +376,30 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     return newest
   }
 
+  /** 情形→模型路由（设置面板）：白名单内的路由才生效，否则 undefined（用宿主默认）。 */
+  const situationModelRoute = async (situation: TaskSituation | undefined): Promise<string | undefined> => {
+    if (situation === undefined) return undefined
+    const settings = await deps.settings?.load()
+    const route = settings?.situationModels[situation]
+    return route !== undefined && settings?.allowedModels.includes(route) === true ? route : undefined
+  }
+
+  /**
+   * 卡片自带的 worktree（new/existing-worktree 建单时已建好）：确认目录还在、分支还对
+   * 就直接用；被别的任务切走了就切回来，切不动（脏树）落回 prepareWorktree。
+   */
+  const cardWorktree = async (target: TaskRecord): Promise<{ dir: string; branch: string } | undefined> => {
+    const branch = target.worktreeBranch
+    if (branch === undefined || branch === '' || !existsSync(target.directory)) return undefined
+    try {
+      const current = (await git(target.directory, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+      if (current !== branch) await git(target.directory, ['checkout', branch])
+      return { dir: target.directory, branch }
+    } catch {
+      return undefined
+    }
+  }
+
   /**
    * 为一张任务卡准备 worktree（分支 `task/<前 8 位>`）。不是 git 仓库、或分支/目录已存在时
    * 返回 undefined，执行会话就落在项目目录里 —— 失败不阻断开工。
@@ -375,6 +411,10 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     const root = await gitRootOf(project)
     if (root === undefined) return undefined
     const branch = `task/${taskId.slice(0, 8)}`
+    // 先复用本项目已完成任务的 worktree（2026-11-22 用户要求）：保留编译产物，切新分支继续干，
+    // 不再每单新建目录与工作区。
+    const reused = await reuseDoneWorktree(root, branch)
+    if (reused !== undefined) return reused
     const dir = join(dirname(root), `${basename(root)}-${taskId.slice(0, 8)}`)
     try {
       await git(root, ['worktree', 'add', dir, '-b', branch])
@@ -388,6 +428,38 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         return undefined
       }
     }
+  }
+
+  /**
+   * 复用已完成任务的 worktree：同根、目录仍在 worktree 列表、树干净（脏树跳过，绝不动
+   * 未提交的工作），按 updatedAt 取最新。新分支基线是项目根 HEAD，不是旧 task 分支头。
+   */
+  const reuseDoneWorktree = async (root: string, branch: string): Promise<{ dir: string; branch: string } | undefined> => {
+    const cards = await deps.store.load()
+    const candidates = cards
+      .filter((card) => card.status === 'done' && card.worktreeBranch !== undefined && card.worktreeBranch !== '' && card.directory !== root)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+    if (candidates.length === 0) return undefined
+    let listed: string
+    let base: string
+    try {
+      listed = await git(root, ['worktree', 'list', '--porcelain'])
+      base = (await git(root, ['rev-parse', 'HEAD'])).trim()
+    } catch {
+      return undefined
+    }
+    for (const card of candidates) {
+      if (!listed.includes(`worktree ${card.directory}`)) continue
+      const dirty = await git(card.directory, ['status', '--porcelain']).catch(() => undefined)
+      if (dirty === undefined || dirty.trim() !== '') continue
+      try {
+        await git(card.directory, ['checkout', '-b', branch, base])
+        return { dir: card.directory, branch }
+      } catch {
+        // 分支重名等：试下一个候选。
+      }
+    }
+    return undefined
   }
 
   /**
@@ -479,7 +551,8 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const sources = Array.isArray(options.sources)
         ? options.sources.filter((item): item is string => typeof item === 'string' && item !== '')
         : []
-      const delivered = await deliverToManager(runtime, manager.sessionId, buildConsoleAssignment(body, hint, sources))
+      const workspaces = await collectWorkspaceBriefs(runtime.workspaces, dirname(deps.store.path))
+      const delivered = await deliverToManager(runtime, manager.sessionId, buildConsoleAssignment(body, hint, sources, workspaces))
       return { managerSessionId: manager.sessionId, delivered }
     },
 
@@ -592,18 +665,30 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const task = await mutateTask(taskId, (target) => {
         answered = applyAnswerToTask(target, { questionId, text: body, at: now() })
       })
+      const question = answered as TaskQuestion
+      const adopted = question.recommendation !== undefined && body === question.recommendation.trim()
+      const text = buildAnswerText({ task, question, answer: body, adopted })
       const managerSessionId = task.consoleSessionId
-      if (managerSessionId === undefined) return { task, delivered: 'none' }
+      let managerDelivered: 'live' | 'resumed' | 'none' = 'none'
+      // 先唤醒管理器：执行会话冷恢复需要活的管理器父会话；副本注明无需转发。
+      if (managerSessionId !== undefined) {
+        try {
+          managerDelivered = await deliverToManager(
+            deps.resolveRuntime(),
+            managerSessionId,
+            `${text}\n\n答复将直接送达执行会话；你无需转发，跟进卡片进度即可。`,
+          )
+        } catch {
+          // 管理器会话丢了不该吞掉答复：卡片上的 answer 已写入，下面仍直送执行会话。
+        }
+      }
+      if (task.captainSessionId === undefined || task.captainSessionId === '') return { task, delivered: managerDelivered }
+      // 确定性重新派发：答复直送执行会话，不依赖管理器 LLM 自觉转发（2026-11-22 用户报答复后不续跑）。
       try {
-        const delivered = await deliverToManager(
-          deps.resolveRuntime(),
-          managerSessionId,
-          buildAnswerText({ task, question: answered as TaskQuestion, answer: body }),
-        )
-        return { task, delivered }
+        const delivery = await deliverToCaptain(task.captainSessionId, text, managerSessionId)
+        return { task, delivered: delivery === 'live' ? 'live' as const : 'resumed' as const }
       } catch {
-        // 管理器会话丢了不该吞掉答复：卡片上的 answer 已经写进去了。
-        return { task, delivered: 'none' }
+        return { task, delivered: 'none' as const }
       }
     },
 
@@ -629,8 +714,10 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const target = existing.find((item) => item.id === taskId)
       if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} does not exist`)
       const project = target.project ?? target.directory
-      // 只产 patch：执行会话跑在独立 worktree 分支上，宿主侧从不 push。
-      const worktree = await prepareWorktree(project, taskId)
+      // 卡片已带 worktree（new/existing-worktree 建单时就建好了）：直接用它执行，不再套一层
+      // 新 worktree（2026-11-22 用户报：已有工作区却被新建，工作区越做越多）。
+      // cwd 卡仍走 prepareWorktree：只产 patch，执行会话跑在独立 task 分支上，宿主侧从不 push。
+      const worktree = await cardWorktree(target) ?? await prepareWorktree(project, taskId)
       const workdir = worktree?.dir ?? project
       // 会话目录就是它在任务工作区里的那个目录：工作区成员校验要求 cwd 等于工作区 path，
       // 这样执行会话才进得了自己的工作区而不是「未分组」。工具白名单由 agent-configs
@@ -662,30 +749,8 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       if (create === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'sessionController cannot create sessions')
       }
-      // 方案 B（2026-11-17 用户选定）：能连上 Super Agent 就把活交给它的 Worker，
-      // 任务台只留卡片与验收；连不上（没固定 token / 没挂那套组件）再走自己的执行会话。
-      const dispatched = await dispatchToSuperAgent({
-        title: target.title,
-        // Super Agent 的 Worker 没有 task_report，简报只给活和边界。
-        brief: [
-          target.content.trim(),
-          '',
-          `工作目录：${seat}`,
-          '允许清单 v0.1：只产 patch；不 push、不开 PR、不碰受保护分支、不跨仓库。',
-          '做完把结论与证据（分支、提交、验收命令输出）写清。',
-        ].join('\n'),
-        cwd: seat,
-      })
-      if (dispatched !== undefined && !dispatched.simulated) {
-        const workerTask = await mutateTask(taskId, (record) => {
-          record.status = 'in-progress'
-          record.directory = workdir
-          if (worktree !== undefined) record.worktreeBranch = worktree.branch
-          record.superAgentWorkerId = dispatched.workerId
-          record.autoRetries = 0
-        })
-        return { taskId: workerTask.id, sessionId: `superagent:${dispatched.workerId}`, status: workerTask.status }
-      }
+      // 设置面板的情形→模型（2026-11-22 用户要求）：建执行会话时按它覆盖。
+      const modelRoute = await situationModelRoute(target.situation)
       // 执行会话要能把结果写回卡片：优先用 task-exec 预设（组成里挂了 dsh-task-manager/tools）。
       // 该预设只在开发组成里声明过；生产组成还没加时退回 all —— 退回后任务照做，
       // 只是 `task_report` 不在工具面里，卡片得人工关单。
@@ -700,6 +765,15 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       const sessionId = created.sessionId
       if (sessionId === undefined) {
         throw new OrchestratorError('DELIVERY_UNAVAILABLE', 'the execution session was created without a session id')
+      }
+      // 情形→模型覆盖：失败不阻断开工，会话用宿主默认模型继续。
+      if (modelRoute !== undefined) {
+        const [provider, ...rest] = modelRoute.split('/')
+        try {
+          await runtime.sessionController?.selectModel?.({ sessionId, provider, model: rest.join('/') })
+        } catch {
+          // 模型覆盖失败不阻断开工。
+        }
       }
       // 分组：执行会话进它自己的任务工作区（path = worktree），标题「项目 · 任务」。
       const seatTitle = `${project.split('/').filter(Boolean).pop() ?? project} · ${target.title.slice(0, 24)}`
@@ -840,12 +914,29 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       return { taskId, delivery, at }
     },
 
+    async getSettings() {
+      return deps.settings?.load() ?? { allowedModels: [], situationModels: {} }
+    },
+
+    async saveSettings(input) {
+      const settings = normalizeSettings(input)
+      if (deps.settings === undefined) return settings
+      return deps.settings.mutate((state) => {
+        state.allowedModels = settings.allowedModels
+        state.situationModels = settings.situationModels
+        return state
+      })
+    },
+
     async create(input) {
       if (typeof input.content !== 'string' || input.content.trim() === '') {
         throw new OrchestratorError('INVALID_INPUT', 'task content is required')
       }
       if (input.needsFinalReview !== undefined && typeof input.needsFinalReview !== 'boolean') {
         throw new OrchestratorError('INVALID_INPUT', 'needsFinalReview must be a boolean')
+      }
+      if (input.situation !== undefined && !SITUATIONS.includes(input.situation)) {
+        throw new OrchestratorError('INVALID_INPUT', 'situation must be simple, complex, or long-running')
       }
       const stamp = now()
       const directory = input.directory !== undefined && input.directory.trim() !== ''
@@ -863,6 +954,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
           directory,
           dispatchRound: 0,
           needsFinalReview: input.needsFinalReview === true,
+          ...(input.situation === undefined ? {} : { situation: input.situation }),
           createdAt: stamp,
           updatedAt: stamp,
         }
@@ -887,6 +979,19 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
       })
       if (task.status === 'waiting-check' && before?.status !== 'waiting-check') await openTestRound(task.id)
       return { ...task, ...(merge?.error === undefined ? {} : { mergeError: merge.error }) }
+    },
+
+    async deleteTask(taskId) {
+      await deps.store.mutate((tasks) => {
+        const target = tasks.find((item) => item.id === taskId)
+        if (target === undefined) throw new OrchestratorError('TASK_NOT_FOUND', `task ${taskId} not found`)
+        // 进行中的卡背后可能还有执行会话在干活，删卡会丢下它：先改状态再删。
+        if (target.status === 'in-progress') {
+          throw new OrchestratorError('TASK_IN_PROGRESS', `task ${taskId} is in progress; change its status before deleting`)
+        }
+        tasks.splice(tasks.indexOf(target), 1)
+      })
+      return { taskId }
     },
 
     /**
@@ -917,7 +1022,7 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         }
         const activity = await sessionActivity(dshHome, task.captainSessionId)
         // 卡片记着的执行会话不在内存（宿主重启）= 没人接着干：别等 10 分钟空闲，立刻按证据处理，
-        // 由下面的自动重试把同一个会话唤醒。没有执行会话的卡（Super Agent 派单）仍按旧行为等待。
+        // 由下面的自动重试把同一个会话唤醒。没有执行会话的卡仍按旧行为等待。
         const recorded = task.captainSessionId ?? ''
         const live = recorded === '' ? undefined : agents?.get(recorded)
         const orphaned = recorded !== '' && agents !== undefined && live === undefined

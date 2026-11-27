@@ -6,9 +6,11 @@
  * the host web server (`/plugins/dsh-task-manager/*`) — the same channel the
  * `dsh-agent-teams` bundle uses for its web surface.
  *
- * - Tasks persist to a single JSON file under `~/.dsh/task-manager/tasks.json`
- *   (overridable via `config.stateDir`); the captain registry lives next to it
- *   in `captains.json`. Both stores serialize mutations and write atomically.
+ * - Every store persists into one Turso database `~/.dsh/task-manager/task-manager.db`
+ *   (overridable via `config.stateDir`), one JSON document row per kind (tasks /
+ *   captains / console / settings). Mutations serialize and run in one transaction;
+ *   the legacy per-state JSON files are imported once, then left in place as
+ *   migration evidence. `seats.json` stays a plain file (an external generator reads it).
  * - Orchestration (M1): the `taskManager` host service assigns tasks to
  *   category captains (continuable child sessions per ADR-0003), receives the
  *   restricted captain reports (identity-checked), and manages the registry.
@@ -26,10 +28,10 @@ import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import { STATUSES, OrchestratorError, type ConversationSummary, type RunMode, type Status, type TaskRecord } from './records.ts'
+import { STATUSES, SITUATIONS, OrchestratorError, type ConversationSummary, type RunMode, type Status, type TaskRecord, type TaskSituation } from './records.ts'
 import { applyLatestReports, buildManagedReportMarkdown, readManagedCards, type ManagedCard } from './managed.ts'
 import { deliverHumanMessage, type ReplyRuntime } from './managed-reply.ts'
-import { CaptainStore, ConsoleStore, TaskStore } from './stores.ts'
+import { CaptainStore, ConsoleStore, SettingsStore, TaskStore } from './stores.ts'
 import { createTaskManager, TASK_MANAGER_SERVICE, type AgentsRegistryLike, type SubagentsLike, type TaskManagerService } from './orchestrator.ts'
 import { registerOrchestrationRoutes, statusForError, type RouteRegistrar } from './orchestration-routes.ts'
 import { json, readJsonBody } from './http.ts'
@@ -46,7 +48,7 @@ interface WorktreeRow {
 
 /** Plugin configuration. */
 interface Config {
-  /** Directory holding `tasks.json`. Defaults to `<dsh home>/task-manager`. */
+  /** Directory holding `task-manager.db`. Defaults to `<dsh home>/task-manager`. */
   stateDir?: string
 }
 
@@ -231,10 +233,12 @@ export function apply(ctx: Context, config?: Config): void {
   const store = new TaskStore(stateDir)
   const captains = new CaptainStore(stateDir)
   const consoleStore = new ConsoleStore(stateDir)
+  const settings = new SettingsStore(stateDir)
   const taskManager = createTaskManager({
     store,
     captains,
     consoleStore,
+    settings,
     // Lazy resolution so late-mounting services (headless boots) appear.
     resolveRuntime: () => ({
       subagents: ctx.get('subagents') as SubagentsLike | undefined,
@@ -399,6 +403,9 @@ export function apply(ctx: Context, config?: Config): void {
         const branch = typeof body['worktreeBranch'] === 'string' ? body['worktreeBranch'].trim() : ''
         const worktreePath = typeof body['worktreePath'] === 'string' ? body['worktreePath'].trim() : ''
         const needsFinalReview = body['needsFinalReview'] === true
+        const situation = typeof body['situation'] === 'string' && (SITUATIONS as readonly string[]).includes(body['situation'])
+          ? body['situation'] as TaskSituation
+          : undefined
         if (runMode !== 'cwd' && runMode !== 'new-worktree' && runMode !== 'existing-worktree') {
           json(res, 400, { error: 'runMode must be cwd, new-worktree, or existing-worktree' })
           return
@@ -460,6 +467,7 @@ export function apply(ctx: Context, config?: Config): void {
             worktreeBranch,
             dispatchRound: 0,
             needsFinalReview,
+            ...(situation === undefined ? {} : { situation }),
             createdAt: now,
             updatedAt: now,
           }
@@ -501,6 +509,68 @@ export function apply(ctx: Context, config?: Config): void {
         }
       },
     }), 'task-manager: set-status route')
+
+    // 删除任务记录：只删卡片本身，会话/worktree/git 分支不动；in-progress 由服务层拒绝。
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/delete',
+      handler: async (req, res) => {
+        let body: Record<string, unknown>
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          json(res, 400, { error: 'invalid JSON body' })
+          return
+        }
+        const id = typeof body['id'] === 'string' ? body['id'] : ''
+        if (id === '') {
+          json(res, 400, { error: 'id is required' })
+          return
+        }
+        try {
+          json(res, 200, await taskManager.deleteTask(id))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          json(res, statusForError(error), { error: message, code: error instanceof OrchestratorError ? error.code : 'INTERNAL' })
+        }
+      },
+    }), 'task-manager: delete route')
+
+    // 设置面板（2026-11-22 用户要求）：允许的模型 + 情形→模型。模型清单来自宿主 catalog。
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-task-manager/settings',
+      handler: async (req, res) => {
+        try {
+          if (req.method === 'GET') {
+            const controller = ctx.get('sessionController') as {
+              modelCatalog?(): Promise<{ groups?: Array<{ id?: string; models?: Array<{ id?: string; name?: string }> }> }>
+            } | undefined
+            const catalog = await controller?.modelCatalog?.()
+            const models = (catalog?.groups ?? []).flatMap((group) => (group.models ?? [])
+              .filter((model) => typeof group.id === 'string' && typeof model.id === 'string')
+              .map((model) => ({ route: `${group.id}/${model.id}`, name: model.name ?? model.id ?? '' })))
+            json(res, 200, { settings: await taskManager.getSettings(), models })
+            return
+          }
+          if (req.method === 'POST') {
+            let body: unknown
+            try {
+              body = await readJsonBody(req)
+            } catch {
+              json(res, 400, { error: 'invalid JSON body' })
+              return
+            }
+            json(res, 200, { settings: await taskManager.saveSettings(body) })
+            return
+          }
+          json(res, 405, { error: 'method not allowed' })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          json(res, 500, { error: message })
+        }
+      },
+    }), 'task-manager: settings route')
 
     // 对账：卡片状态说"进行中"、实际没有会话在干活时纠正过来（2026-11-17 用户报一堆卡挂着没人处理）。
     ctx.effect(() => webServer.register({

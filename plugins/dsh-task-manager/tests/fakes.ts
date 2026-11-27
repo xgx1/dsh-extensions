@@ -68,7 +68,7 @@ export class FakeSubagents implements SubagentsLike {
     _parent: AgentLike,
     childId: string,
     content: Array<{ type: 'text'; text: string }>,
-    _options: { source: { kind: 'plugin'; plugin: string }; signal: AbortSignal },
+    _options: { source: { kind: 'task-manager' }; signal: AbortSignal },
   ): Promise<string> {
     this.coldFollowups.push({ childId, text: content.map((block) => block.text).join('\n') })
     return 'cold-msg-' + String(this.coldFollowups.length)

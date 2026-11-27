@@ -455,11 +455,11 @@ describe('待测试环节（测试文档 + 测试简报）', () => {
       // report() 返回的是回报那一刻的快照：测试文档与发起的时刻落在落盘状态上。
       const stored = (await t.store.load()).find((item) => item.id === 'task-a')
       expect(stored?.testDoc?.origin).toBe('generated')
-      expect(stored?.testDoc?.text).toContain('tdd-fanout')
+      expect(stored?.testDoc?.text).toContain('write-manual-test-doc')
       expect(stored?.testDoc?.text).toContain('content of task-a')
       expect(stored?.testStartedAt).toBe(1_000)
       expect(captain.followups).toHaveLength(1)
-      expect(captain.lastFollowupText()).toContain('background-window-control')
+      expect(captain.lastFollowupText()).toContain('write-manual-test-doc')
       // 停在待测试的会话又报一次 waiting-check：不是新一轮测试，不再投简报。
       await t.service.report(assigned.captainSessionId, 'task-a', 'waiting-check', '测完补一句')
       expect(captain.followups).toHaveLength(1)
@@ -481,6 +481,86 @@ describe('待测试环节（测试文档 + 测试简报）', () => {
       ).rejects.toBeInstanceOf(OrchestratorError)
       const task = await t.service.setTestDoc(assigned.captainSessionId, 'task-a', '## 正式测试文档\n用例：…')
       expect(task.testDoc).toEqual({ text: '## 正式测试文档\n用例：…', at: 1_000, origin: 'session' })
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('answerQuestion — 答复确定性重新派发', () => {
+  const seedDispatched = async (t: Awaited<ReturnType<typeof makeService>>, recommendation?: string): Promise<void> => {
+    await t.seedTask('task-a')
+    await t.store.mutate((tasks) => {
+      const task = tasks.find((item) => item.id === 'task-a')
+      if (task === undefined) throw new Error('missing task')
+      task.captainSessionId = 'session-captain'
+      task.consoleSessionId = 'session-manager'
+      task.questions = [{ id: 'q1', text: '选哪个？', at: 1, ...(recommendation === undefined ? {} : { recommendation }) }]
+    })
+  }
+
+  it('答复直送活着的执行会话，管理器副本注明无需转发，source 署名生产者', async () => {
+    const t = await makeService()
+    try {
+      await seedDispatched(t)
+      const captain = t.agents.add('session-captain')
+      const out = await t.service.answerQuestion('task-a', 'q1', '选 A')
+      expect(out.delivered).toBe('live')
+      expect(captain.lastFollowupText()).toContain('选 A')
+      expect(t.managerAgent.lastFollowupText()).toContain('无需转发')
+      expect((captain.followups[0] as { source: { kind: string } }).source.kind).toBe('task-manager')
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('一键采纳推荐答案时正文注明采纳，执行会话冷恢复走 subagents.followup', async () => {
+    const t = await makeService()
+    try {
+      await seedDispatched(t, '建议用 A')
+      const out = await t.service.answerQuestion('task-a', 'q1', '建议用 A')
+      expect(out.delivered).toBe('resumed')
+      expect(t.subagents.coldFollowups).toHaveLength(1)
+      expect(t.subagents.coldFollowups[0]?.text).toContain('采纳了推荐答案')
+      expect(t.subagents.coldFollowups[0]?.text).toContain('建议用 A')
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('deleteTask — 面板删除', () => {
+  it('只删目标卡，其余卡不动', async () => {
+    const t = await makeService()
+    try {
+      await t.seedTask('task-a')
+      await t.seedTask('task-b')
+      await expect(t.service.deleteTask('task-a')).resolves.toEqual({ taskId: 'task-a' })
+      expect((await t.store.load()).map((task) => task.id)).toEqual(['task-b'])
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('未知 id 报 TASK_NOT_FOUND', async () => {
+    const t = await makeService()
+    try {
+      await expect(t.service.deleteTask('nope')).rejects.toMatchObject({ code: 'TASK_NOT_FOUND' })
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('in-progress 拒绝删除；改状态后可删', async () => {
+    const t = await makeService()
+    try {
+      await t.seedTask('task-a')
+      await t.service.setStatus('task-a', 'in-progress')
+      await expect(t.service.deleteTask('task-a')).rejects.toMatchObject({ code: 'TASK_IN_PROGRESS' })
+      expect(await t.store.load()).toHaveLength(1)
+      await t.service.setStatus('task-a', 'problem')
+      await expect(t.service.deleteTask('task-a')).resolves.toEqual({ taskId: 'task-a' })
+      expect(await t.store.load()).toHaveLength(0)
     } finally {
       await rm(t.dir, { recursive: true, force: true })
     }

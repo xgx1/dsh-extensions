@@ -6,13 +6,14 @@
  * defaults at read time, never throwing.
  */
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   type TaskRecord,
   TEST_SKILLS,
   applyTestDocForRound,
+  buildConsoleAssignment,
   buildTestDocMarkdown,
   normalizeTask,
 } from '../src/records.ts'
@@ -130,8 +131,8 @@ describe('TaskStore migration round-trip', () => {
         }
       })
 
-      // 从磁盘读回：旧字段不丢，新字段已写
-      const raw = JSON.parse(await readFile(file, 'utf8')) as Array<Record<string, unknown>>
+      // 从库里读回：旧字段不丢，新字段已写（数据现在在 task-manager.db，tasks.json 是迁移证据）
+      const raw = await store.load() as unknown as Array<Record<string, unknown>>
       expect(raw).toHaveLength(2)
       expect(raw[1]?.['title']).toBe('ce shi biao ti ying') // 第二条旧记录原样
       expect(raw[1]?.['dispatchRound']).toBe(0)
@@ -169,7 +170,7 @@ describe('待测试：测试文档（2026-11-19）', () => {
     expect(doc).toContain('点一下测试文档要能看到要测什么') // 一、要测什么
     expect(doc).toContain('/repo/out.md')                      // 证据
     expect(doc).toContain('task_test_doc')                     // 交回通道
-    expect(doc).toContain('模拟点击桌面窗口')
+    expect(doc).toContain('write-manual-test-doc')               // 人工测试模板
   })
 
   it('已有比汇报更新的文档就不覆盖；汇报更新后重新生成', () => {
@@ -210,3 +211,15 @@ describe('待测试：测试文档（2026-11-19）', () => {
   })
 })
 
+
+describe('buildConsoleAssignment — 工作区清单', () => {
+  it('有工作区时渲染路径与用途，并指示按用途匹配选 cwd', () => {
+    const text = buildConsoleAssignment('做个价格对比', undefined, [], [{ path: '/home/sx/projects/demo', purpose: '演示、demo' }])
+    expect(text).toContain('## 可用工作区（路径 — 用途关键词）')
+    expect(text).toContain('- /home/sx/projects/demo — 演示、demo')
+    expect(text).toContain('按正文与各工作区用途关键词的匹配度选 cwd')
+  })
+  it('没有工作区时不渲染空清单', () => {
+    expect(buildConsoleAssignment('做个对比')).not.toContain('## 可用工作区')
+  })
+})
