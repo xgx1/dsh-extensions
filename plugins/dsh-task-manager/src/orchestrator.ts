@@ -492,6 +492,8 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         'merge', '--no-ff', '-m', `merge: 完成任务 ${task.id.slice(0, 8)}（${branch}）`, branch])
       return { commit: await git(project, ['rev-parse', '--short', 'HEAD']) }
     } catch (reason) {
+      // 冲突会让项目工作区停在 UU/AA（用户下一条命令全撞上），合不了就先撤掉这次合并。
+      await git(project, ['merge', '--abort']).catch(() => '')
       return { error: reason instanceof Error ? reason.message.slice(0, 300) : 'merge failed' }
     }
   }
@@ -975,6 +977,11 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
         target.status = validStatus
         target.updatedAt = now()
         if (merge?.commit !== undefined) target.mergeCommit = merge.commit
+        // 合并失败要留在卡上：只在响应里返回，面板刷新后就看不见了（实测踩过）。
+        if (merge !== undefined) {
+          if (merge.error === undefined) delete target.mergeError
+          else target.mergeError = merge.error
+        }
         return target
       })
       if (task.status === 'waiting-check' && before?.status !== 'waiting-check') await openTestRound(task.id)

@@ -435,6 +435,48 @@ describe('setStatus — 关门即落地', () => {
       await rm(repo, { recursive: true, force: true })
     }
   })
+
+  it('合并冲突时把原因写进卡片，并且不把项目工作区留在冲突状态', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'task-manager-conflict-'))
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' })
+    const commit = (...notes: string[]) =>
+      git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    // 同一个文件两侧都改，模拟两张卡先后合并到同一个基线
+    await writeFile(join(repo, 'calc.py'), 'def add(a, b):\n    return a + b\n')
+    git('init', '-q', '-b', 'main')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
+    git('checkout', '-q', '-b', 'task/conflict')
+    await writeFile(join(repo, 'calc.py'), 'def add(a, b):\n    return a + b\n\n\ndef other(c):\n    return c\n')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'branch work')
+    git('checkout', '-q', 'main')
+    await writeFile(join(repo, 'calc.py'), 'def add(a, b):\n    return a + b\n\n\ndef main_side(d):\n    return d\n')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'main work')
+
+    const t = await makeService()
+    try {
+      await t.store.mutate((tasks) => {
+        tasks.push({
+          id: 'task-conflict', title: 'x', content: 'y', status: 'waiting-check', runMode: 'cwd',
+          directory: repo, project: repo, worktreeBranch: 'task/conflict',
+          dispatchRound: 0, needsFinalReview: false, createdAt: 1, updatedAt: 1,
+        })
+      })
+      const closed = await t.service.setStatus('task-conflict', 'done' as Status)
+      expect(closed.status).toBe('done')
+      expect(closed.mergeError).toBeTruthy()
+      expect(closed.mergeCommit).toBeUndefined()
+      // 卡片上留得住原因（面板刷新后还能看到），而且工作区没停在 UU/AA。
+      const stored = (await t.store.load()).find((item) => item.id === 'task-conflict')
+      expect(stored?.mergeError).toBeTruthy()
+      expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo, stdio: 'pipe' }).toString().trim()).toBe('')
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+      await rm(repo, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('待测试环节（测试文档 + 测试简报）', () => {

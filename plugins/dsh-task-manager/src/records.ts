@@ -94,6 +94,8 @@ export interface TaskRecord {
   worktreeBranch?: string
   /** 用户验收通过后把任务分支合回项目分支的提交 id（`setStatus(done)` 副作用）。 */
   mergeCommit?: string
+  /** 那次合并失败的原因（冲突等）；成功后清掉。 */
+  mergeError?: string
   /** 对账器自动重起执行会话的次数（上限 1，避免无限重试）。 */
   autoRetries?: number
   conversations?: ConversationSummary[]
