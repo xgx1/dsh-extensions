@@ -439,8 +439,6 @@ describe('setStatus — 关门即落地', () => {
   it('合并冲突时把原因写进卡片，并且不把项目工作区留在冲突状态', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'task-manager-conflict-'))
     const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' })
-    const commit = (...notes: string[]) =>
-      git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
     // 同一个文件两侧都改，模拟两张卡先后合并到同一个基线
     await writeFile(join(repo, 'calc.py'), 'def add(a, b):\n    return a + b\n')
     git('init', '-q', '-b', 'main')
@@ -472,6 +470,41 @@ describe('setStatus — 关门即落地', () => {
       const stored = (await t.store.load()).find((item) => item.id === 'task-conflict')
       expect(stored?.mergeError).toBeTruthy()
       expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo, stdio: 'pipe' }).toString().trim()).toBe('')
+    } finally {
+      await rm(t.dir, { recursive: true, force: true })
+      await rm(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('卡片目录本身是 worktree 时照样能合回项目分支（没记 project 字段）', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'task-manager-wt-'))
+    const worktree = join(repo, 'wt')
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' })
+    const commitAll = (cwd: string, message: string) => {
+      execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { cwd, stdio: 'pipe' })
+      execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', message], { cwd, stdio: 'pipe' })
+    }
+    await writeFile(join(repo, 'base.txt'), 'base\n')
+    git('init', '-q', '-b', 'main')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
+    git('worktree', 'add', '-q', worktree, '-b', 'task/wt1')
+    await writeFile(join(worktree, 'done.txt'), 'work\n')
+    commitAll(worktree, 'work')
+
+    const t = await makeService()
+    try {
+      await t.store.mutate((tasks) => {
+        tasks.push({
+          id: 'task-wt', title: 'x', content: 'y', status: 'waiting-check', runMode: 'existing-worktree',
+          directory: worktree, worktreeBranch: 'task/wt1', // 故意不写 project
+          dispatchRound: 0, needsFinalReview: false, createdAt: 1, updatedAt: 1,
+        })
+      })
+      const done = await t.service.setStatus('task-wt', 'done' as Status)
+      expect(done.mergeCommit).toMatch(/^[0-9a-f]{7,}$/)
+      expect(done.mergeError).toBeUndefined()
+      expect(existsSync(join(repo, 'done.txt'))).toBe(true)
     } finally {
       await rm(t.dir, { recursive: true, force: true })
       await rm(repo, { recursive: true, force: true })

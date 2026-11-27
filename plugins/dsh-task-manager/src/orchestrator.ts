@@ -475,6 +475,16 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     await git(dir, ['-c', 'user.email=task-console@local', '-c', 'user.name=task-console', 'commit', '-q', '--allow-empty', '-m', 'init: project skeleton'])
   }
 
+  /** 目录所属仓库的主 worktree；任务目录自己是 worktree 时，HEAD 停在任务分支上，合并只能从主 worktree 发起。 */
+  const mainWorktreeOf = async (dir: string): Promise<string | undefined> => {
+    try {
+      const first = (await git(dir, ['worktree', 'list', '--porcelain'])).split('\n')[0] ?? ''
+      return first.startsWith('worktree ') ? first.slice('worktree '.length) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   /**
    * 把任务分支合回项目当前分支（`git merge --no-ff`）。没分支、没仓库、已合过都算无事发生。
    * @returns 合并提交 id；失败时返回原因（卡片照旧置 done，合并失败要能看见）。
@@ -483,7 +493,9 @@ export function createTaskManager(deps: TaskManagerDeps): TaskManagerService {
     task: Pick<TaskRecord, 'id' | 'project' | 'worktreeBranch' | 'directory'>,
   ): Promise<{ commit?: string; error?: string } | undefined> => {
     const branch = task.worktreeBranch
-    const project = task.project ?? (task.directory === undefined ? undefined : await gitRootOf(task.directory))
+    // 任务目录本身通常是 worktree：在里面查「分支是否已合」等于拿分支跟自己比，永远算已合。
+    // 所以没记 project 时取该仓库的主 worktree（git worktree list 第一条）。
+    const project = task.project ?? (task.directory === undefined ? undefined : await mainWorktreeOf(task.directory))
     if (branch === undefined || branch === '' || project === undefined) return undefined
     try {
       const merged = await git(project, ['branch', '--list', '--merged', 'HEAD', branch])
